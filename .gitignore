@@ -1,0 +1,19 @@
+# the original game disks and anything unpacked from them
+*.d64
+orig/
+plus/
+plus4d/
+mouse4d/work/
+mouse4d/*.prg
+# build outputs and test leftovers
+psi5_ef.crt
+psi5_ef_bridge.crt
+*.prg
+*.bin
+*.lst
+tools/*.png
+tools/ramsyms.txt
+js/test/out/
+__pycache__/
+manual.txt
+tools/*.log

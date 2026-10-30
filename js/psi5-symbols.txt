@@ -1,0 +1,83 @@
+; Labels for the Psi-5 +4D EasyFlash cartridge, from RE-NOTES.md, MOUSE-SUPPORT.md and ef/*.lst.
+; Format: NAME $ADDR  ; comment      (python js/build.py puts them into programs.js)
+
+; --- start-up and front end
+TRAINERPROMPT   $0CAD   ; the snapshot's PC: "would you like to use trainers"
+TRAINERANSWER   $0D2D   ; $FF = no to every question
+INTROFLAG1      $091D
+INTROFLAG2      $0924
+TITLEWAIT       $04B1   ; title screen loop: joystick change (or the timer) ends it
+STARTGAME       $802A   ; start code of the overlay: sets up the screen, then loads the next part
+TODCHECK        $3C8D   ; copy protection: needs the CIA2 time-of-day alarm interrupt
+LOADRAW         $0200   ; Krill entry, patched to RAWLD
+LOADCD          $020B   ; Krill entry, patched to CDLD
+LOADWRAP        $0140   ; the game's file-load wrapper (JSR $020B ...)
+FRONTKEYQ       $CF00   ; course / crew screens: key queue
+FRONTKEYCOUNT   $62
+FRONTGETKEY     $CFB7
+; --- EasyFlash cartridge (resident code in the cartridge RAM)
+EFCOPY          $DF00
+EFRAWLD         $DF62
+EFCDLD          $DF65
+EFFIND          $DF9A
+EFNAME          $DFDF
+; --- bridge
+BRIDGEKEYQ      $03CA   ; key queue, 10 entries
+BRIDGEKEYCOUNT  $4E
+GETKEY          $3EE9   ; getkey, called from the menu loop
+MENULOOP        $8609
+IRQRASTER       $8EA7
+IRQMAIN         $8F40
+IRQTOP          $8F33
+JOYREAD         $8FB2
+INTERP          $8655   ; the menu interpreter
+EXECUTOR        $8867
+EXECDEPT        $3FBB
+DISPATCH        $8A4D
+H_STATUS        $8AC8
+H_DISPLAY       $8ADC
+H_RANK          $8AE7
+H_CANCEL        $8B52
+H_NAVCANCEL     $8B58
+H_ENGCANCEL     $8B69
+H_ACCEL         $8BCA
+H_ASSIGN        $8C43
+H_FIREOTHER     $8C04
+H_EXAMINE       $8CFC
+H_FIREWEAPONS   $8DCB
+H_ENABLE        $8E8E
+H_P             $8E93
+RESTART         $89C1   ; QUIT: reloads from disk (no disk here)
+REDRAW          $93E8
+SETDEVICE       $95AC   ; A = 1 enable, 0 cancel, $2F = device letter
+CMDDEPT         $2D     ; command record: department, command, argument, position
+CMDCMD          $2E
+CMDARG          $2F
+CMDPOS          $30
+MENUDEPTH       $37
+DEPTLETTER      $38
+DEPTINDEX       $39
+MENUPTR         $0C
+DEVSTATE        $58CC   ; engineering device states A-L (bit 7 = enabled)
+DEVREQ          $07E0   ; pending requests ($80 = waiting for the engineer)
+ENGMENU         $C1F0
+TEXTSCREEN      $5000
+COLORSCREEN     $5400
+FONT            $5800
+BITMAP          $6000
+SPRITEPTRS      $57F8
+STATUSTEXTS     $5D2A
+IRQVECTOR       $0314
+; --- mouse patch (ef/mouse_ram.asm), RAM part in the loader's old area
+TPRE            $0210
+TJOY            $021A
+TPOST           $024A
+TKEY            $0253
+MOUSEX          $02B4   ; pointer position, 2-pixel units
+MOUSEY          $02B5
+POINTERCOL      $02B6
+POINTERROW      $02B7
+MOUSEBTN        $02B8
+MOUSECLICK      $02B9
+MOUSEMENUON     $02BA
+MOUSEON         $02BE
