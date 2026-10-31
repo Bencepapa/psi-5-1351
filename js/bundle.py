@@ -6,6 +6,7 @@
 """
 
 import os
+import shutil
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -43,10 +44,18 @@ def main():
     one = src.replace('<!--SCRIPTS-->', inline())
     with open(os.path.join(HERE, 'dist', 'psi5.html'), 'w', encoding='utf-8') as f:
         f.write(full(one))
+    docs = os.path.join(os.path.dirname(HERE), 'docs')
+    os.makedirs(docs, exist_ok=True)
+    with open(os.path.join(docs, 'index.html'), 'w', encoding='utf-8') as f:
+        f.write(full(one))
+    shutil.copyfile(os.path.join(HERE, 'ref', 'psi5_ef_tested.crt'),
+                    os.path.join(docs, 'psi5_ef.crt'))
+    shutil.copyfile(os.path.join(HERE, 'ref', 'psi5_ef_bridge_tested.crt'),
+                    os.path.join(docs, 'psi5_ef_bridge.crt'))
     if '--fragment' in sys.argv:
         with open(sys.argv[sys.argv.index('--fragment') + 1], 'w', encoding='utf-8') as f:
             f.write(one)
-    print('wrote js/index.html and js/dist/psi5.html')
+    print('wrote js/index.html, js/dist/psi5.html, and docs/')
 
 
 if __name__ == '__main__':

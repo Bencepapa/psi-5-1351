@@ -8,6 +8,7 @@ mouse4d/*.prg
 # build outputs and test leftovers
 psi5_ef.crt
 psi5_ef_bridge.crt
+!docs/*.crt
 *.prg
 *.bin
 *.lst
