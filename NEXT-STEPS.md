@@ -5,22 +5,15 @@
 ## Done
 
 - Bridge test cartridge: `python ef/efbuild.py --bridge`, boot with `tools/crt_bridge.sh`, retake the snapshot with `tools/snap_bridge.py`. Its crash was the game's copy protection (see `RE-NOTES.md`); the boot code now sets the CIA2 alarm.
-- Sprite pointer (sprite 7, multiplexed, white with black outline), list clicks in all departments, grey drag row and rank flash.
-
-## Last changes, mostly untested (2026-10-31)
-
-Right column clicks work (tested by hand). Not yet confirmed:
-- clicking the back arrow, and blank menu cells doing nothing;
-- yellow drag preview: a simulated hold showed no grey row, either the harness (`tools/mouse_hold_test.py`) or a regression, so try a real drag first;
-- right button as back, and as drag cancel; only the bridge menus have it, not the trainer prompt or crew screen;
-- the full-game path with these changes.
-`MOUSE-SUPPORT.md` doesn't describe them yet.
+- Sprite pointer (sprite 7, multiplexed, white with black outline), list clicks in all departments, white hover, grey drag row with yellow preview, rank flash, back arrow and right button.
+- JS page: starts on the bridge cartridge (`js/ref/psi5_ef_bridge_tested.crt`). After changing the cartridge, copy both to `js/ref/`, then run `python js/build.py` and `python js/bundle.py`, and update `js/psi5-symbols.txt` if the mouse variables moved.
 
 ## To test
 
-- Real mouse with this version: pointer, top-view ships while sprite 7 is multiplexed.
-- Simulated so far: Navigation select, Engineering toggle, Engineering drag.
-- Not exercised at all: Scanning examine, Repair assign, drag on the Weapons, Repair and Scanning lists, row clicks during a prompt. They need a situation with targets, damage or firing orders.
+- Tested by hand with a real mouse: pointer, right column clicks, back arrow, right button as back.
+- Held-button tests in the JS machine only: grey row, yellow preview, list-end clamp, rank and flash, white hover. Not yet confirmed by hand after the last fix, except that the white hover shows.
+- Right button cancelling a drag: not tested.
+- Not exercised: Scanning examine, Repair assign, drag on the Weapons, Repair and Scanning lists, row clicks during a prompt. They need targets, damage or firing orders.
 
 ## Open
 

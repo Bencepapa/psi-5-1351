@@ -48,7 +48,7 @@ A click on the menu row finds the word under the pointer and pushes its first ch
 
 **Sources:** `ef/mouse_ram.asm`, `ef/mouse_rom.asm`; the cartridge itself is `ef/ef_boot.asm`, `ef/ef_res.asm` and `ef/efbuild.py`.
 
-**Rank feedback:** while a row in a priority list is dragged it turns grey; after the rank the moved row flashes yellow and the shifted rows blue for 40 frames (colours in `mouse_rom.asm`).
+**Feedback:** what a click would act on turns white under the pointer: a menu word, a list row, or one column of a two-column list. A dragged row in a priority list turns grey and the row under the pointer yellow, the row it would land on. After the rank the moved row flashes yellow and the shifted rows blue for 40 frames. Clicking the back arrow, or the right button anywhere in the bridge menus, goes back; during a drag the right button cancels it. The trainer prompt and crew selection don't have this: they use another key queue.
 
 **Tested in VICE** (mouse moves and clicks simulated through the monitor; there is no automated test with a grabbed host mouse):
 - the pointer moved;

@@ -58,6 +58,8 @@ var SentinelVideo = (function () {
     this.cols = new Uint8Array(4);
     this.next = 0;                         // next raster line to draw
     this.vi = 0; this.pi = 0;              // positions in the machine's logs
+    this.mi = 0;                            // position in the VIC-bank RAM write log
+    this.vram = new Uint8Array(0x4000);    // RAM as seen at the start of this frame
   }
 
   var V = Vic.prototype;
@@ -65,7 +67,9 @@ var SentinelVideo = (function () {
   V.beginFrame = function () {
     this.regs.set(this.m.vicStart);
     this.ptrs.set(this.m.ptrStart);
-    this.next = 0; this.vi = 0; this.pi = 0;
+    this.next = 0; this.vi = 0; this.pi = 0; this.mi = 0;
+    var bank = this.m.vicBank();
+    this.vram.set(this.m.ram.subarray(bank, bank + 0x4000));
   };
 
   // Draw again from the start of the frame up to 'raster' (after load state).
@@ -77,18 +81,27 @@ var SentinelVideo = (function () {
     if (off >= 0x1000 && off < 0x2000 && (this.m.model === 'c64' ? (bank === 0 || bank === 0x8000) : bank !== 0xC000)) {
       return Font.rom[off & 0x7FF];
     }
-    return this.m.ram[bank + off];
+    return this.vram[off];
+  };
+
+  V.ramByte = function (bank, off) {
+    return this.vram[off];
   };
 
   // Draw every raster line before 'raster'.
   V.renderTo = function (raster) {
-    var m = this.m, vl = m.vicLog, pl = m.ptrLog, regs = this.regs, px = this.px;
+    var m = this.m, vl = m.vicLog, pl = m.ptrLog, ml = m.memLog, regs = this.regs, px = this.px;
     raster = Math.min(raster, 312);
     var bank = m.vicBank();
     for (; this.next < raster; this.next++) {
       var r = this.next;
       while (this.pi < pl.length && (pl[this.pi] < r || (pl[this.pi] === r && cycleX(pl[this.pi + 1]) <= 0))) {
         var a = pl[this.pi + 2]; this.ptrs[(a >> 10) * 8 + (a & 7)] = pl[this.pi + 3]; this.pi += 4;
+      }
+      while (this.mi < ml.length && (ml[this.mi] < r || (ml[this.mi] === r && cycleX(ml[this.mi + 1]) <= 0))) {
+        var ma = ml[this.mi + 2];
+        if (ma >= bank && ma < bank + 0x4000) this.vram[ma - bank] = ml[this.mi + 3];
+        this.mi += 4;
       }
       while (this.vi < vl.length && (vl[this.vi] < r || (vl[this.vi] === r && cycleX(vl[this.vi + 1]) <= 0))) {
         regs[vl[this.vi + 2]] = vl[this.vi + 3]; this.vi += 4;
@@ -148,7 +161,7 @@ var SentinelVideo = (function () {
       var cr = m.colorRam[i] & 15;
       o = x0 + cx * 8;
       if (bmm) {
-        b = m.ram[bank + bmBase + i * 8 + ln];
+         b = this.ramByte(bank, bmBase + i * 8 + ln);
         if (mcm) {
           for (x = 0; x < 4; x++) {
             var pv = (b >> (6 - x * 2)) & 3;
@@ -188,8 +201,8 @@ var SentinelVideo = (function () {
       var dy = (raster - sy) & 0xFF;          // wraps like the 8-bit compare
       if (dy >= (ye ? 42 : 21) || raster > 300) continue;
       var row = ye ? dy >> 1 : dy;
-      var data = bank + this.ptrs[ptrBase + s] * 64 + row * 3;
-      var bits = (m.ram[data] << 16) | (m.ram[data + 1] << 8) | m.ram[data + 2];
+       var data = this.ptrs[ptrBase + s] * 64 + row * 3;
+       var bits = (this.ramByte(bank, data) << 16) | (this.ramByte(bank, data + 1) << 8) | this.ramByte(bank, data + 2);
       if (!bits) continue;
       if (!any) { spr.fill(0); any = true; }
       var sx = v[s * 2] | (((v[0x10] >> s) & 1) << 8);

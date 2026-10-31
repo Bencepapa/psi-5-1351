@@ -27,7 +27,8 @@ const ctx = {};
 vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'programs.js'), 'utf8'), ctx);
 const PROG = ctx.PSI5_PROGRAMS.psi5;
 const SYM = PROG.symbols;
-const CRT = new Uint8Array(Buffer.from(PROG.crt, 'base64'));
+const BRIDGE_CRT = new Uint8Array(fs.readFileSync(path.join(ROOT, 'ref', 'psi5_ef_bridge_tested.crt')));
+const FULL_CRT = new Uint8Array(fs.readFileSync(path.join(ROOT, 'ref', 'psi5_ef_tested.crt')));
 const OUT = process.argv[2] || path.join(__dirname, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -66,11 +67,11 @@ function snap(m, name) {
 // Commodore key matrix: [column, row], as in app.js
 const KEYS = { Enter: [0, 1], KeyE: [1, 6], KeyS: [1, 5], KeyW: [1, 1], KeyN: [4, 7], Digit1: [7, 0] };
 
-function boot(dma) {
+function boot(dma, which = 'bridge') {
   const m = new C128('c64');
   m.dma = !!dma;
   m.standInKernal = true;
-  m.loadCrt(CRT);
+  m.loadCrt(which === 'full' ? FULL_CRT : BRIDGE_CRT);
   m.startCart();
   return m;
 }
@@ -103,6 +104,35 @@ function pointerTo(m, row, col) {
   for (let i = 0; i < 80 && Math.abs(m.ram[SYM.POINTERCOL] - col) > 1; i++) { m.moveMouse(m.ram[SYM.POINTERCOL] > col ? -4 : 4, 0); frames(m, 1); }
   frames(m, 3);
 }
+function rowChar(m, row, col) { return m.ram[SYM.TEXTSCREEN + row * 40 + col]; }
+function findRowChar(m, row, code) {
+  for (let col = 0; col < 40; col++) if (rowChar(m, row, col) === code) return col;
+  return -1;
+}
+function clickPointer(m, row, col, right = false) {
+  pointerTo(m, row, col);
+  if (right) m.mouse.right = true; else m.mouse.left = true;
+  frames(m, 8);
+  if (right) m.mouse.right = false; else m.mouse.left = false;
+  frames(m, 120);
+}
+function guardedFrames(m, n, label) {
+  const bad = [SYM.RESTART, SYM.TRAINERPROMPT, SYM.TITLEWAIT, 0x3CA7];
+  bad.forEach(a => m.setBreak(a, true));
+  let hit = null, alive = true;
+  for (let i = 0; i < n && alive; i++) {
+    while (true) {
+      const r = m.run();
+      if (r === 'frame') break;
+      if (r === 'break') { hit = m.breakInfo.pc; alive = false; break; }
+      alive = false; break;
+    }
+    if (m.stopped || m.cpu.jam) alive = false;
+  }
+  bad.forEach(a => m.setBreak(a, false));
+  check(alive && !hit, label + ' stays alive for ' + n + ' frames' + (hit === null ? '' : ' (reached $' + hx(hit) + ')'));
+  return alive;
+}
 function sidWrites(m) {
   const w = { n: 0, regs: new Set(), gates: 0 };
   const orig = m.sidWrite.bind(m);
@@ -113,7 +143,7 @@ function sidWrites(m) {
 // ---- 1. cartridge and chips ---------------------------------------------------------
 {
   const m = new C128('c64');
-  const cart = m.loadCrt(CRT);
+   const cart = m.loadCrt(BRIDGE_CRT);
   check(cart.name === 'PSI-5 TRADING COMPANY', 'CRT: name "' + cart.name + '"');
   const banks = Object.keys(cart.banks).map(Number);
   check(banks.length === 23 && Math.max(...banks) === 22, 'CRT: 23 banks (0-22), 46 CHIP packets of 8K');
@@ -236,7 +266,7 @@ function sidWrites(m) {
 function playthrough(dma) {
   const tag = dma ? 'dma' : 'plain';
   const label = (dma ? 'm.dma' : 'page speed') + ': ';
-  const m = boot(dma);
+  const m = boot(dma, 'full');
   const sid = sidWrites(m);
 
   check(until(m, 0x0CA0, 0x0CC0, 600) && !m.stopped, label + 'boots through the cartridge to the trainer prompt (PC $' + hx(m.cpu.pc) + ', frame ' + m.frame + ')');
@@ -298,7 +328,8 @@ function playthrough(dma) {
   snap(m, tag + '-9-pointer-on-eng');
   m.mouse.left = true; frames(m, 8); m.mouse.left = false; frames(m, 100);
   snap(m, tag + '-10-engineering');
-  check(m.ram[SYM.CMDDEPT] === 0x45 && m.ram[SYM.DEPTLETTER] === 0x45, label + 'the click chose Engineering (command record department $' + hx(m.ram[SYM.CMDDEPT]) + ')');
+   check(m.ram[SYM.CMDDEPT] === 0x45 && m.ram[SYM.DEPTLETTER] === 0x45, label + 'the click chose Engineering (command record department $' + hx(m.ram[SYM.CMDDEPT]) + ')');
+   const engineeringMenuState = m.saveState();
   // then the word "Status" at the left of the engineering menu
   pointerTo(m, 14, 2);
   m.mouse.left = true; frames(m, 8); m.mouse.left = false; frames(m, 150);
@@ -310,12 +341,75 @@ function playthrough(dma) {
   const dev0 = dev.join(',');
   m.mouse.left = true; frames(m, 8); m.mouse.left = false; frames(m, 200);
   const dev1 = [...m.ram.slice(SYM.DEVSTATE, SYM.DEVSTATE + 12)].join(',');
-  check(dev1 !== dev0, label + 'a click on a device row cancels it through the game routine (' + dev0 + ' -> ' + dev1 + ')');
-  snap(m, tag + '-12-device-click');
-  return { m, sid, tag, label };
+   check(dev1 !== dev0, label + 'a click on a device row cancels it through the game routine (' + dev0 + ' -> ' + dev1 + ')');
+   snap(m, tag + '-12-device-click');
+   // The second device column must address J, not the first-column B.
+    pointerTo(m, 18, 23);
+   const PEND = 0x07E0;   // requests: a device may go to RqC first instead of changing state
+   const b0 = m.ram[SYM.DEVSTATE + 1], j0 = m.ram[SYM.DEVSTATE + 9] + m.ram[PEND + 9] * 256, bp0 = m.ram[PEND + 1];
+   m.mouse.left = true; frames(m, 8); m.mouse.left = false; frames(m, 150);
+    check(m.ram[SYM.DEVSTATE + 1] === b0 && m.ram[PEND + 1] === bp0 && m.ram[SYM.DEVSTATE + 9] + m.ram[PEND + 9] * 256 !== j0, label + 'right-column Engineering Status click toggles J, not B (pointer ' + m.ram[SYM.POINTERCOL] + ',' + m.ram[SYM.POINTERROW] + '; B ' + hx(b0) + ' -> ' + hx(m.ram[SYM.DEVSTATE + 1]) + ', J ' + hx(j0) + ' -> ' + hx(m.ram[SYM.DEVSTATE + 9]) + ')');
+   const backCol = findRowChar(m, 14, 0x7F);
+   check(backCol >= 0, label + 'Engineering menu has the back arrow code $7F on row 14');
+   if (backCol >= 0) clickPointer(m, 14, backCol);
+    check(rowChar(m, 15, 1) === 0x45, label + 'clicking the back arrow goes back to the Engineering menu');
+   const count0 = m.ram[SYM.BRIDGEKEYCOUNT];
+   clickPointer(m, 14, 39);
+   check(m.ram[SYM.BRIDGEKEYCOUNT] === count0, label + 'clicking a blank menu cell does nothing');
+   m.mouse.right = true; frames(m, 8); m.mouse.right = false; frames(m, 120);
+    check(rowChar(m, 15, 1) === 0x45, label + 'right mouse button goes back through $DC00 bit 0');
+    m.loadState(engineeringMenuState);
+    const displayCol = findRowChar(m, 14, 0x44);
+   if (displayCol >= 0) clickPointer(m, 14, displayCol);
+    const dragRow = 18, dropRow = 20;
+   pointerTo(m, dragRow, 2); m.mouse.left = true; frames(m, 20);
+    const dragColor = m.colorRam[dragRow * 40 + 3];
+    pointerTo(m, dropRow, 2); const dropColor = m.colorRam[dropRow * 40 + 3];
+    check(dragColor === 12 && dropColor === 7, label + 'held drag greys the source row and yellows the row under the pointer (title ' + String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 15 * 40, SYM.TEXTSCREEN + 15 * 40 + 20)) + '; pointer ' + m.ram[SYM.POINTERCOL] + ',' + m.ram[SYM.POINTERROW] + '; colours ' + dragColor + '/' + dropColor + ')');
+   m.mouse.left = false; frames(m, 80);
+    check(m.ram[SYM.CMDCMD] === 0x44 || m.ram[SYM.CMDCMD] === 0x52 || m.ram[SYM.CMDCMD] === 0x57, label + 'releasing a drag ranks and flashes the selected item (command $' + hx(m.ram[SYM.CMDCMD]) + ')');
+   snap(m, tag + '-13-drag');
+   return { m, sid, tag, label };
 }
 
+function bridgeSmoke(dma) {
+  const label = (dma ? 'bridge m.dma' : 'bridge page speed') + ': ';
+  const m = boot(dma, 'bridge');
+  const writes = [];
+  const ciaWrite = m.ciaWrite;
+  m.ciaWrite = function (cia, r, v) {
+    if (cia === m.cia2 && (r === 0x0F || (r >= 8 && r <= 11))) writes.push([r, v]);
+    return ciaWrite.call(m, cia, r, v);
+  };
+  const reached = untilAt(m, SYM.GETKEY, 1200);
+  check(reached && !m.stopped, label + 'boots directly to getkey $' + hx(SYM.GETKEY) + ' (frame ' + m.frame + ')');
+  check(writes.some(x => x[0] === 0x0F && (x[1] & 0x80)) && writes.some(x => x[0] === 8), label + 'boot programs the CIA2 TOD alarm through $DD0F and $DD0B-$DD08');
+  frames(m, 200);
+  const s = snap(m, (dma ? 'bridge-dma' : 'bridge-plain') + '-bridge');
+  check(s.lit > 20000 && s.colors >= 8, label + 'bridge drawn (' + s.lit + ' lit pixels, ' + s.colors + ' colours)');
+  check(m.ram[SYM.SPRITEPTRS + 7] === 0x82, label + 'pointer sprite uses block $82 at the text split');
+  guardedFrames(m, 3000, label + 'copy-protection path');
+  return m;
+}
+
+const bridgeGames = [false, true].map(bridgeSmoke);
 const games = [false, true].map(playthrough);
+
+function joystickRegression(m, label) {
+  for (const present of [true, false]) {
+    m.mouse.present = present;
+    for (const bit of [8, 4]) {
+      for (let i = 0; i < 14; i++) {
+        m.joy2 = bit; guardedFrames(m, 12, label + ' mouse ' + present + ' held ' + bit + ' #' + i);
+        m.joy2 = 0; frames(m, 8);
+      }
+    }
+  }
+  m.joy2 = 0;
+  check(!m.stopped && !m.cpu.jam, label + ' left/right regression never jams or stops the machine');
+}
+joystickRegression(bridgeGames[0], 'bridge cartridge');
+joystickRegression(games[0].m, 'full-game cartridge');
 
 // ---- 3. debugger -------------------------------------------------------------------------
 {

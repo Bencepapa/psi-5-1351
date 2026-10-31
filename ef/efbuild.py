@@ -144,6 +144,12 @@ p1 = add(img[0x0200:0xD000])
 p2 = add(img[0xE000:0x10000])
 p3 = add(img[0xD000:0xE000])
 colram = open(os.path.join(ROOT, 'tools', SNAP + 'col.bin'), 'rb').read()[2:]
+if BRIDGE:      # the snapshot's list rows are one colour; a cell that isn't was the pointer of the time
+    colram = bytearray(colram)
+    for row in range(17, 25):
+        cells = [c & 15 for c in colram[row * 40:row * 40 + 40]]
+        colram[row * 40:row * 40 + 40] = bytes([max(set(cells), key=cells.count)]) * 40
+    colram = bytes(colram)
 p4 = add(colram)
 segtab = rec(p1, 0x0200, 0xD000 - 0x0200) + rec(p2, 0xE000, 0x2000) + rec(p3, 0x1000, 0x1000) + b'\0'
 fixseg = rec(p1 + 0x1000 - 0x0200, 0x1000, 0x1000)

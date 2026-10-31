@@ -2,7 +2,7 @@
 
 Writes js/programs.js:
 
-    PSI5_PROGRAMS = { psi5: {model: 'c64', file: 'psi5_ef.crt', crt: base64, symbols: {...}} }
+    PSI5_PROGRAMS = { psi5: {model: 'c64', file: '<cartridge>', crt: base64, symbols: {...}} }
 
 The cartridge is built by ../ef/efbuild.py; the symbols come from psi5-symbols.txt.
 """
@@ -27,14 +27,13 @@ def symbols():
 
 
 def main():
-    # python js/build.py [cartridge.crt]. Pinned by default to the cartridge the page was tested with;
-    # ../psi5_ef.crt is under development (sprite pointer: other RAM layout, labels differ).
-    crt_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'ref', 'psi5_ef_tested.crt')
+    # python js/build.py [cartridge.crt]. The browser starts on the bridge build.
+    crt_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'ref', 'psi5_ef_bridge_tested.crt')
     with open(crt_path, 'rb') as f:
         crt = f.read()
     out = {'psi5': {
         'model': 'c64',
-        'file': 'psi5_ef.crt',
+        'file': os.path.basename(crt_path),
         'crt': base64.b64encode(crt).decode('ascii'),
         'symbols': dict(sorted(symbols().items(), key=lambda kv: kv[1])),
     }}
@@ -44,7 +43,7 @@ def main():
         f.write('var PSI5_PROGRAMS = ')
         json.dump(out, f, indent=1)
         f.write(';' + chr(10))
-    print(f'psi5_ef.crt: {len(crt)} bytes, {len(out["psi5"]["symbols"])} symbols')
+    print(f'{out["psi5"]["file"]}: {len(crt)} bytes, {len(out["psi5"]["symbols"])} symbols')
     print(f'wrote {target}')
 
 

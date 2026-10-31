@@ -24,6 +24,10 @@ FLLO     = $DFFD         ; rows FLLO-FLHI changed, FLTGT is the moved one
 FLHI     = $DFFE
 FLTGT    = $DFFF
 COLGREY  = 12
+COLHOVER = 1              ; white
+HOVC     = $DBE8          ; colour RAM past the screen: holds a colour
+HOVD1    = $53F6          ; unused end of the text screen: scratch
+HOVD2    = $53F7
 COLMOVED = 7             ; yellow
 COLSHIFT = 6             ; blue
 FLASHLEN = 40            ; frames
@@ -107,7 +111,8 @@ VIS:    LDA CANCEL
 VGO:    LDA BTN
         BNE VHOLD
         JMP VREL
-VHOLD:  LDA DRAGR
+VHOLD:  JSR HVCLR
+        LDA DRAGR
         BNE VPRE
         LDX PROW
         CPX #LIST0
@@ -129,49 +134,51 @@ VITEM:
         LDA #COLGREY
         LDX PROW
         JSR PAINT
-VPRE:   LDX PREVW
-        BEQ VP0
-        LDA PREVC
-        JSR PAINT
-        LDA #0
-        STA PREVW
-VP0:    LDX PROW
+; the row under the pointer previews the new position (the last item's row past the list's end).
+; ITEM uses TMP2/TMP3, ROWADR uses MNEW; MOLD is free here (MOVCHK has finished).
+VPRE:   LDA #0
+        STA MOLD
+        LDX CROW
         CPX #LIST0
-        BCS VP0A
-        JMP VFL
-VP0A:
-        STX TMP2
-VP1:    LDA PROW
+        BCC VP3
+        STX MOLD
+        LDA PROW
         PHA
-        LDA TMP2
+VP1:    LDA MOLD
         STA PROW
         JSR ITEM
-        STA TMP3
-        PLA
-        STA PROW
-        LDA TMP3
         BNE VP2
-        DEC TMP2
-        LDA TMP2
+        DEC MOLD
+        LDA MOLD
         CMP #LIST0
         BCS VP1
-        JMP VFL
-VP2:    LDX TMP2
-        CPX DRAGR
-        BNE VP2A
-        JMP VFL
-VP2A:
-        JSR COLRD
-        STA PREVC
+        LDA #0
+        STA MOLD
+VP2:    PLA
+        STA PROW
+VP3:    LDA MOLD
+        CMP DRAGR
+        BNE VP4
+        LDA #0
+        STA MOLD
+VP4:    LDA MOLD
+        CMP PREVW
+        BEQ VP9         ; repaint only on a change
+        LDX PREVW
+        BEQ VP5
+        LDA BASEC
+        JSR PAINT
+VP5:    LDX MOLD
+        STX PREVW
+        BEQ VP9
         LDA #COLMOVED
         JSR PAINT
-        STX PREVW
-        JMP VFL
+VP9:    JMP VFL
 VREL:   LDX DRAGR
         BEQ VFL
         LDX PREVW
         BEQ VR1
-        LDA PREVC
+        LDA BASEC
         JSR PAINT
         LDA #0
         STA PREVW
@@ -185,7 +192,9 @@ VCANCEL:LDA #0
         STA BTN
         JMP VREL
 VFL:    LDA FLT
-        BEQ VX
+        BNE VFL1
+        JMP HOVER
+VFL1:
         CMP #$FF
         BNE VF3
         LDX FLLO
@@ -210,6 +219,137 @@ VF4:    LDA BASEC
         CPX FLHI
         BCC VF4
         BEQ VF4
+        RTS
+; ---- hover: what a click would act on turns white, as the game's own highlights ----
+; HOVR/HOVS/HOVE: the painted row (0 = none) and its columns; its colour is kept in an unused
+; colour RAM cell. MOLD, HOVD1, HOVD2: the wanted row and columns, only used in here.
+HOVER:  LDA BTN
+        ORA DRAGR
+        BEQ HV0
+        RTS
+HV0:
+        STA MOLD
+        LDA MENUON      ; only while the menu loop runs
+        BEQ HVG
+        LDX CROW
+        CPX #14
+        BNE HVL
+        LDY CCOL        ; menu row: the word under the pointer
+        LDA MENU,Y
+        CMP #$20
+        BEQ HVG
+HM1:    DEY
+        BMI HM2
+        LDA MENU,Y
+        CMP #$20
+        BNE HM1
+HM2:    INY
+        STY HOVD1
+        LDY CCOL
+HM3:    INY
+        CPY #40
+        BCS HM4
+        LDA MENU,Y
+        CMP #$20
+        BNE HM3
+HM4:    STY HOVD2
+        LDA #14
+        STA MOLD
+HVG:    JMP HVSET
+HVL:    CPX #LIST0      ; list row with an item: the row, or the clicked column of two
+        BCC HVG
+        LDA PROW
+        PHA
+        LDA PCOL
+        PHA
+        STX PROW
+        LDA CCOL
+        STA PCOL
+        JSR ITEM
+        BEQ HL8
+        LDA #0
+        STA HOVD1
+        LDA #40
+        STA HOVD2
+        LDY #20
+        JSR CHARAT
+        CMP #'|'
+        BNE HL7
+        LDA CCOL
+        CMP #20
+        BCS HL6
+        LDA #20
+        STA HOVD2
+        BNE HL7
+HL6:    LDA #21
+        STA HOVD1
+HL7:    LDA CROW
+        STA MOLD
+HL8:    PLA
+        STA PCOL
+        PLA
+        STA PROW
+HVSET:  LDA MOLD
+        CMP HOVR
+        BNE HV1
+        CMP #0
+        BEQ HV9
+        LDA HOVD1
+        CMP HOVS
+        BNE HV1
+        LDA HOVD2
+        CMP HOVE
+        BEQ HV9
+HV1:    JSR HVCLR
+        LDX MOLD
+        STX HOVR
+        BEQ HV9
+        LDA HOVD1
+        STA HOVS
+        LDA HOVD2
+        STA HOVE
+        JSR ROWADR      ; keep the colour of the first cell
+        ADC HOVS
+        STA PEEK+1
+        TXA
+        ADC #$D8
+        STA PEEK+2
+        JSR PEEK
+        STA HOVC
+        LDA #COLHOVER
+        JMP HVPNT
+HV9:    RTS
+; hover off: the cells get their colour back
+HVCLR:  LDX HOVR
+        BEQ HV9
+        LDA HOVC
+        AND #$0F
+        JSR HVPNT
+        LDA #0
+        STA HOVR
+        RTS
+; A = colour: paints HOVS up to HOVE on row HOVR
+HVPNT:  STA TMP3
+        LDA $FB
+        PHA
+        LDA $FC
+        PHA
+        LDX HOVR
+        JSR ROWADR
+        STA $FB
+        TXA
+        ADC #$D8
+        STA $FC
+        LDA TMP3
+        LDY HOVS
+HP1:    STA ($FB),Y
+        INY
+        CPY HOVE
+        BNE HP1
+        PLA
+        STA $FC
+        PLA
+        STA $FB
         RTS
 ; Z set if the title is one of the priority lists
 RANKABLE: LDA TITLE+1

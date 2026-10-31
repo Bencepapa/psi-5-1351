@@ -104,7 +104,9 @@ SHC:    .byte 0
 GEN:    .byte 0         ; the game's $D015
 INTXT:  .byte 0         ; bit 7: the raster is in the text area, sprite 7 is the pointer; bit 6: arrow XORed in
 PREVW:  .byte 0         ; preview row while a priority item is dragged
-PREVC:  .byte 0         ; its normal colour
+HOVR:   .byte 0         ; hover: painted row, 0 = none
+HOVS:   .byte 0         ; first column
+HOVE:   .byte 0         ; column after the last
 RBTN:   .byte 0         ; right mouse button state
 RCLICK: .byte 0         ; right-button press edge
 CANCEL: .byte 0         ; cancel a drag until the left button is released

@@ -44,6 +44,7 @@ var C128 = (function () {
     this.sidLog = [];             // [cycleInFrame, reg, value] for audio
     this.vicLog = [];             // [line, cycleInLine, reg, value]: VIC writes this frame
     this.ptrLog = [];             // [line, cycleInLine, addr, value]: sprite pointer writes
+    this.memLog = [];             // [line, cycleInLine, address, value]: VIC-bank RAM writes
     this.vicStart = new Uint8Array(0x40);   // VIC registers when the frame began
     this.ptrStart = new Uint8Array(512);    // sprite pointers of every 1K screen then
     // debugging
@@ -308,6 +309,7 @@ var C128 = (function () {
     this.sidLog.length = 0;
     this.vicLog.length = 0;
     this.ptrLog.length = 0;
+    this.memLog.length = 0;
     this.vicStart.set(this.vic);
     for (var b = 0; b < 64; b++) this.ptrStart.set(this.ram.subarray(b * 0x400 + 0x3F8, b * 0x400 + 0x400), b * 8);
     this.video.beginFrame();
@@ -485,6 +487,7 @@ var C128 = (function () {
     }
     if (this.frozenAt[a]) return;
     if ((a & 0x3F8) === 0x3F8) this.logAt(this.ptrLog, a, v);
+    if (a >= 0x4000 && a < 0x8000) this.logAt(this.memLog, a, v);
     this.ram[a] = v;
   };
 
@@ -856,7 +859,7 @@ var C128 = (function () {
   P.saveState = function () {
     var s = { version: 1, cpu: {}, arrays: {}, cia1: cloneCia(this.cia1),
               cia2: cloneCia(this.cia2), mouse: Object.assign({}, this.mouse),
-              vicLog: this.vicLog.slice(), ptrLog: this.ptrLog.slice(), sidLog: this.sidLog.slice()};
+               vicLog: this.vicLog.slice(), ptrLog: this.ptrLog.slice(), memLog: this.memLog.slice(), sidLog: this.sidLog.slice()};
     var self = this;
     ['a', 'x', 'y', 'sp', 'pc', 'p', 'cycles'].forEach(function (k) { s.cpu[k] = self.cpu[k]; });
     ARRAYS.forEach(function (k) { if (!(k === 'vdcRam' && self.model === 'c64')) s.arrays[k] = self[k].slice(); });
@@ -875,7 +878,7 @@ var C128 = (function () {
     this.cia1 = cloneCia(Object.assign(newCia({}), s.cia1)); this.cia2 = cloneCia(Object.assign(newCia({}), s.cia2));
     this.setCartCtl(this.efCtl || 0);
     Object.assign(this.mouse, s.mouse);
-    this.vicLog = s.vicLog.slice(); this.ptrLog = s.ptrLog.slice(); this.sidLog = s.sidLog.slice();
+    this.vicLog = s.vicLog.slice(); this.ptrLog = s.ptrLog.slice(); this.memLog = (s.memLog || []).slice(); this.sidLog = s.sidLog.slice();
     // frozen addresses are debugger settings, not machine state: they stay and win
     for (var a in this.frozen) this.ram[a] = this.frozen[a];
     this.writeLog = null; this.watchHit = null; this.breakInfo = null; this.skipBreakAt = this.cpu.pc;
