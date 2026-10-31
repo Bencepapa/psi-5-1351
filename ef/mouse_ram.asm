@@ -103,6 +103,11 @@ SHY:    .byte 0
 SHC:    .byte 0
 GEN:    .byte 0         ; the game's $D015
 INTXT:  .byte 0         ; bit 7: the raster is in the text area, sprite 7 is the pointer; bit 6: arrow XORed in
+PREVW:  .byte 0         ; preview row while a priority item is dragged
+PREVC:  .byte 0         ; its normal colour
+RBTN:   .byte 0         ; right mouse button state
+RCLICK: .byte 0         ; right-button press edge
+CANCEL: .byte 0         ; cancel a drag until the left button is released
 ; the game's sprite stores (see the sprite pointer below); here because they are all that fits
 ; $E8D3/$E8FC STA $D001,Y
 WRY:    CPY #14

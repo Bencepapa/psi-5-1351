@@ -7,6 +7,15 @@
 - Bridge test cartridge: `python ef/efbuild.py --bridge`, boot with `tools/crt_bridge.sh`, retake the snapshot with `tools/snap_bridge.py`. Its crash was the game's copy protection (see `RE-NOTES.md`); the boot code now sets the CIA2 alarm.
 - Sprite pointer (sprite 7, multiplexed, white with black outline), list clicks in all departments, grey drag row and rank flash.
 
+## Last changes, mostly untested (2026-10-31)
+
+Right column clicks work (tested by hand). Not yet confirmed:
+- clicking the back arrow, and blank menu cells doing nothing;
+- yellow drag preview: a simulated hold showed no grey row, either the harness (`tools/mouse_hold_test.py`) or a regression, so try a real drag first;
+- right button as back, and as drag cancel; only the bridge menus have it, not the trainer prompt or crew screen;
+- the full-game path with these changes.
+`MOUSE-SUPPORT.md` doesn't describe them yet.
+
 ## To test
 
 - Real mouse with this version: pointer, top-view ships while sprite 7 is multiplexed.

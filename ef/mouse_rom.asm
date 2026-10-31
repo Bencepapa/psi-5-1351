@@ -101,17 +101,27 @@ MP6:    STA YP
 MP7:
 MP9:    ; falls through to VIS
 ; ---- list colours: the dragged row grey, then a flash of the rows that changed ----
-VIS:    LDA BTN
-        BEQ VREL
-        LDA DRAGR
-        BNE VFL
+VIS:    LDA CANCEL
+        BEQ VGO
+        JMP VCANCEL
+VGO:    LDA BTN
+        BNE VHOLD
+        JMP VREL
+VHOLD:  LDA DRAGR
+        BNE VPRE
         LDX PROW
         CPX #LIST0
-        BCC VFL
+        BCS VV0
+        JMP VFL
+VV0:
         JSR RANKABLE
-        BNE VFL
+        BEQ VRANK
+        JMP VFL
+VRANK:
         JSR ITEM
-        BEQ VFL
+        BNE VITEM
+        JMP VFL
+VITEM:
         LDX PROW
         STX DRAGR
         JSR COLRD
@@ -119,13 +129,61 @@ VIS:    LDA BTN
         LDA #COLGREY
         LDX PROW
         JSR PAINT
+VPRE:   LDX PREVW
+        BEQ VP0
+        LDA PREVC
+        JSR PAINT
+        LDA #0
+        STA PREVW
+VP0:    LDX PROW
+        CPX #LIST0
+        BCS VP0A
+        JMP VFL
+VP0A:
+        STX TMP2
+VP1:    LDA PROW
+        PHA
+        LDA TMP2
+        STA PROW
+        JSR ITEM
+        STA TMP3
+        PLA
+        STA PROW
+        LDA TMP3
+        BNE VP2
+        DEC TMP2
+        LDA TMP2
+        CMP #LIST0
+        BCS VP1
+        JMP VFL
+VP2:    LDX TMP2
+        CPX DRAGR
+        BNE VP2A
+        JMP VFL
+VP2A:
+        JSR COLRD
+        STA PREVC
+        LDA #COLMOVED
+        JSR PAINT
+        STX PREVW
         JMP VFL
 VREL:   LDX DRAGR
         BEQ VFL
+        LDX PREVW
+        BEQ VR1
+        LDA PREVC
+        JSR PAINT
+        LDA #0
+        STA PREVW
+VR1:    LDX DRAGR
         LDA BASEC
         JSR PAINT
         LDA #0
         STA DRAGR
+        RTS
+VCANCEL:LDA #0
+        STA BTN
+        JMP VREL
 VFL:    LDA FLT
         BEQ VX
         CMP #$FF
@@ -271,15 +329,28 @@ MT8:    LDA #0
         STA INTXT
         RTS
 
-; ---- joystick read (DDR A = 0): left button -> click events; returns the joystick byte ----
+; ---- joystick read (DDR A = 0): mouse buttons -> click events; returns the joystick byte ----
 MJOY:   LDA MENUON
         BEQ MJ0
         DEC MENUON
 MJ0:    LDA $DC00
+        STA TMP3
         LDX MOUSEON
-        BEQ MJ8         ; no mouse: the real joystick
+        BEQ MJ8
+        AND #1
+        BNE MR0
+        LDA RBTN
+        BNE MR1
+        INC RBTN
+        INC RCLICK
+MR1:    JMP ML0
+MR0:    LDA #0
+        STA RBTN
+ML0:    LDA TMP3
         AND #$10
         BNE MJREL
+        LDA CANCEL
+        BNE MJ5
         LDA BTN
         BNE MJ5
         INC BTN         ; press: remember the cell
@@ -289,6 +360,11 @@ MJ0:    LDA $DC00
         STA PROW
         BNE MJ5
 MJREL:  LDA BTN
+        LDA CANCEL
+        BEQ MJR0
+        LDA #0
+        STA CANCEL
+MJR0:   LDA BTN
         BEQ MJ5
         LDA #0
         STA BTN
@@ -308,21 +384,41 @@ MJ8:    RTS
 ; ---- menu loop: turn a click into a key or an action ----
 MKEY:   LDA #6
         STA MENUON
-        LSR CLICK
+        LDA RCLICK
+        BEQ MK0
+        LDA #0
+        STA RCLICK
+        LDA DRAGR
+        BEQ MKBACK
+        LDA #1
+        STA CANCEL
+        RTS
+MKBACK: LDA #$14
+        JMP PUSHK
+MK0:    LSR CLICK
         BCC MKX
         LDX PROW
         CPX #14
         BNE MKL
         LDX PCOL        ; menu row: the word's shortcut key
+        LDA MENU,X
+        CMP #$20
+        BEQ MKX
 MK2:    LDA MENU,X      ; back to the start of the word
         CMP #$20
         BEQ MK3
         DEX
         BPL MK2
-MK3:    LDA MENU+1,X
+MK3:    INX
+        CPX #40
+        BCS MKX
+        LDA MENU,X
         CMP #'?'
-        BNE MK4
+        BNE MK4A
         LDA #'/'
+MK4A:   CMP #$7F
+        BNE MK4
+        LDA #$14
 MK4:    CMP #$60
         BCC MK5
         AND #$DF        ; lower case -> upper case
@@ -522,9 +618,9 @@ PUSHK:  LDX KCOUNT
 ; the first thing in the column, a capital followed by a blank
 ITEM:   LDY #0
         LDA PCOL
-        CMP #21
+        CMP #20
         BCC IT1
-        LDY #21         ; two columns?
+        LDY #20         ; two columns?
         JSR CHARAT
         LDY #0
         CMP #'|'
