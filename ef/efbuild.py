@@ -88,7 +88,7 @@ if MOUSE:
     rom_extra = chr(10) + unrolled('SHPUT', shape) + unrolled('SHRST', art)
     rom_out, _ = asm_file('mouse_rom.asm', f'SHSIGA = ${ARTAD + SIG:04X}{chr(10)}SHSIG = ${art[SIG]:02X}{chr(10)}SHBLOCK = ${(ARTAD - 0x4000) // 64:02X}{chr(10)}' + ''.join(f'{k} = ${v:04X}' + chr(10) for k, v in ram_sym.items()
                                                     if k.isupper() and not k.startswith('TK')
-                                                    and k not in ('MPRE', 'MJOY', 'MKEY', 'MSPR', 'MTOP', 'MXOR')), rom_extra)
+                                                    and k not in ('MPRE', 'MJOY', 'MKEY', 'MSPR', 'MTOP', 'MXOR', 'MREST')), rom_extra)
     mouse_rom = bytes(rom_out.get(a, 0) for a in range(0x8000, 0xA000))
     STA15 = bytes([0x8D, 0x15, 0xD0])
     HOOKS = {0x8F2D: (bytes([0x20, 0xA5, 0x8F]), ram_sym['TPRE']), 0x8FB1: (bytes([0xAD, 0x00, 0xDC]), ram_sym['TJOY']),
@@ -98,7 +98,9 @@ if MOUSE:
              0xE8D3: (bytes([0x99, 0x01, 0xD0]), ram_sym['WRY']), 0xE8FC: (bytes([0x99, 0x01, 0xD0]), ram_sym['WRY']),
              0xE88A: (bytes([0x9D, 0x2B, 0xD0]), ram_sym['WRC']), 0xE90B: (STA15, ram_sym['WRE']),
              0x92ED: (STA15, ram_sym['WRE']), 0x9387: (STA15, ram_sym['WRE']), 0x9437: (STA15, ram_sym['WRE']),
-             0xB920: (STA15, ram_sym['WRE'])}
+             0xB920: (STA15, ram_sym['WRE']),
+             0x9B85: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU']),
+             0x86AD: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU'])}
     hooked = dict.fromkeys(HOOKS, 0)
 
 
@@ -183,6 +185,8 @@ for nm, track, sector in prg_entries(disk):
     print(f'{nm:16} ${start:04X}-${start + len(data) - 1:04X} ({len(data)} bytes) bank {where(pos)[0]}')
 directory += b'\0'
 assert len(directory) <= 256, len(directory)
+for address in (0x9B85, 0x86AD):
+    assert hooked[address], f'native menu paint hook missing at ${address:04X}'
 
 # ---- boot code (bank 0) ----
 prefix = ''.join(f'{k} = ${res_sym[k]:04X}\n' for k in ('COPY', 'CBANK', 'CSRC', 'CDST', 'CLEN', 'GO'))

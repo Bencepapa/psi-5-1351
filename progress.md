@@ -1,6 +1,15 @@
 # Psi-5 UI debugging handoff
 
-## Current implementation (2026-11-02)
+## Menu follow-up after 5b210da (2026-11-02, uncommitted)
+
+- Menu hover now directly sets native endpoint `$0774`, word start `$4D`, and choice ordinal `$3D`. It clears deeper remembered choices as the native navigation code does. Mouse movement no longer synthesizes intermediate left/right presses; native fire still executes the selected command, and physical joystick directions retain precedence.
+- The priority-label source hooks are at **`$9B85` and `$86AD`**, verified by disassembly of the actual game instructions (`STA $DA31,Y`). The older analysis below named addresses two bytes too late. Both sites now call `WPMENU`, which skips the `priority_` prefix while preserving X/Y. Interactive lowercase suffixes such as `At-will` are unaffected. The builder asserts that both hooks were applied.
+- `LABELS` is now only a safety net in main-loop `VIS`, outside the split IRQ. Direct menu repainting uses the shared native highlight; it does not add a second overlay.
+- The RAM part still fits `$0210-$02FF`, with all mouse variable addresses unchanged. Space was recovered by returning the ROM result through X (all trampoline callers consume A), compact ACT dispatch, and moving command-record restoration into the `MREST` ROM entry. Updated trampoline symbols: `TPOST=$023F`, `TKEY=$0248`; `WPMENU=$0275`.
+- Verification: the full `node js/test/run.js` suite passed in both timing modes. Cursor-write traces show exactly one selection write for each 1-to-9 / 9-to-1 jump, and clicks execute the correct numeric choice. Both native paint loops were exercised (88 forward / 2 backward paint calls per mode), with **zero white writes** to priority-label cells at instruction granularity. Main-loop visuals peaked at 3347 cycles with zero late calls (4545 / 4504 measured updates). All 5 D64 reader tests also pass. Log: `js/test/out/direct-selection.log`.
+- Both CRT variants and browser outputs are rebuilt and distributed CRT copies match the verified builds byte for byte. This follow-up has not been committed or visually checked in VICE yet.
+
+## Committed checkpoint 5b210da (2026-11-02)
 
 This section supersedes the experimental state below; the earlier analysis is retained as history.
 

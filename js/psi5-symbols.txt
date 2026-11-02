@@ -71,8 +71,9 @@ IRQVECTOR       $0314
 ; --- mouse patch (ef/mouse_ram.asm), RAM part in the loader's old area
 TPRE            $0210
 TJOY            $0218
-TPOST           $0243
-TKEY            $024C
+TPOST           $023F
+TKEY            $0248
+WPMENU          $0275   ; suppress native priority_ label white stores
 MOUSEX          $028A   ; assembler label XP, pointer position, 2-pixel units
 MOUSEY          $028B   ; assembler label YP
 POINTERCOL      $028C   ; assembler label CCOL
@@ -83,4 +84,4 @@ MOUSEMENUON     $0290   ; assembler label MENUON
 MOUSEON         $0294   ; assembler label MOUSEON
 HOVERROW        $02A4   ; list row, or 14 for a native menu target
 HOVERSTART      $02A5   ; list start column / native menu word start
-HOVEREND        $02A6   ; list end column / native menu pulse phase
+HOVEREND        $02A6   ; list end column; unused/zero for native menu targets

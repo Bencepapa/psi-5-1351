@@ -10,6 +10,7 @@ MKEY = $8006
 MSPR = $8009
 MTOP = $800C
 MXOR = $800F
+MREST = $8012
 RECBUF = $53E8           ; 14 bytes, only used inside TKEY: unused end of the text screen (before the sprite pointers)
 
         * = $0210
@@ -31,13 +32,13 @@ ROMCALL: STX RC+1      ; X = entry in the ROM part's page $80
         LDA #$06        ; 8K mode: ROML at $8000
         STA DE02
 RC:     JSR $8000
-        STA RCA
+        TAX             ; callers consume A only; IRQ exits restore the game's X
         LDA #$04        ; cartridge off
         STA DE02
         PLA
         STA $01
         PLP
-        LDA RCA
+        TXA
         RTS
 ; after the keyboard scan ($9005 JSR $3E72): keep port 2's pots selected all frame
 TPOST:  JSR $3E72
@@ -49,22 +50,17 @@ TKEY:   LDX #<MKEY
         JSR ROMCALL
         LDA ACT         ; the ROM part has saved the command record and set up its arguments
         BEQ TK9
-        CMP #2
-        BEQ TKR
-        BCS TKE
+        LSR A           ; ACT 1=device, 2=rank, 3=examine
+        BCC TKR
+        BNE TKE
         LDA ACTA        ; 1 = enable, 0 = cancel the device in $2F
         JSR $95AC
         JMP TK8
 TKR:    JSR $8AE7       ; Nav always selects rank 1; other departments use $30
         JMP TK8
 TKE:    JSR $8CFC       ; examine target $2F
-TK8:    LDY #13
-TK2:    LDA RECBUF,Y
-        STA $2D,Y
-        DEY
-        BPL TK2
-        LDA #0
-        STA ACT
+TK8:    LDX #<MREST
+        JSR ROMCALL
 TK9:    JMP $3EE9
 
 ; helper for the ROM part (its operand is patched)
@@ -72,8 +68,19 @@ PEEK:   .byte $AD       ; LDA abs
         .word $5000
         RTS
 
-; variables
-RCA:    .byte 0
+; Native menu paint stores. A is reloaded on every native loop iteration;
+; both callers re-establish their flags after this call. Keep X and Y intact.
+; Native indexing starts at screen column 1; priority_ occupies indexes 0-8.
+WPMENU: CPY #9
+        BCS WPSTORE
+        LDA $5231
+        CMP #'p'
+        BEQ WPDONE
+WPSTORE:LDA #1
+        STA $DA31,Y
+WPDONE: RTS
+
+; variables (addresses unchanged)
 OLDX:   .byte 0
 OLDY:   .byte 0
 MOLD:   .byte 0
@@ -106,7 +113,7 @@ INTXT:  .byte 0         ; bit 7: the raster is in the text area, sprite 7 is the
 PREVW:  .byte 0         ; preview row while a priority item is dragged
 HOVR:   .byte 0         ; list hover row, or 14 for native menu selection
 HOVS:   .byte 0         ; first column / menu word start
-HOVE:   .byte 0         ; list end column, or synthetic-key release phase
+HOVE:   .byte 0         ; list end column; unused/zero for native menu targets
 RBTN:   .byte 0         ; right mouse button state
 RCLICK: .byte 0         ; right-button press edge
 CANCEL: .byte 0         ; cancel a drag until the left button is released

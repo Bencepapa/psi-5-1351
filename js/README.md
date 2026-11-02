@@ -50,3 +50,6 @@ The suite also checks Navigation Status selection without flash, Navigation Disp
 with yellow/blue feedback, overlapping rank-flash cleanup after a row disappears,
 list-hover column bounds across joystick polls, and visual-update completion before the next
 top raster split. Game-address breakpoints exclude the overlapping mouse ROM bank.
+Menu checks trace cursor writes for direct 1-to-9 and 9-to-1 hover, verify the
+activated command, and observe individual colour writes through both native
+paint loops to ensure `priority_` never receives white.

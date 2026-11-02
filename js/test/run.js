@@ -446,6 +446,27 @@ function playthrough(dma) {
     const fireCol = findRowChar(m, 14, 0x46);
     if (fireCol >= 0) clickPointer(m, 14, fireCol);
     const fireState = m.saveState();
+    for (const [from, to] of [[1, 9], [9, 1]]) {
+      m.loadState(fireState);
+      pointerTo(m, 14, findRowChar(m, 14, 0x30 + from));
+      const target = findRowChar(m, 14, 0x30 + to), cursorWrites = [];
+      const write = m.write;
+      m.write = function (address, value) {
+        if (address === 0x0774) cursorWrites.push(value);
+        return write.call(this, address, value);
+      };
+      // An absolute pointer-cell change isolates selection from physical motion
+      // through intervening cells, while the real IRQ still reads/handles it.
+      m.ram[SYM.MOUSEX] = target * 4 + 1;
+      frames(m, 2);
+      m.write = write;
+      check(target >= 0 && m.ram[0x0774] === target - 1 && cursorWrites.length === 1 && cursorWrites[0] === target - 1 &&
+            m.colorRam[14 * 40 + target] === 1 && m.ram[0x3D] === to + 1,
+            label + 'numeric hover jumps directly ' + from + ' -> ' + to + ' without intermediate selections (' + cursorWrites.join(',') + ')');
+      m.mouse.left = true; frames(m, 8); m.mouse.left = false; frames(m, 120);
+      check(m.ram[SYM.CMDARG] === 0x30 + to && findRowChar(m, 14, 0x4D) >= 0,
+            label + 'direct hover activates the correct native choice ' + to);
+    }
     for (const shots of [1, 2]) {
       m.loadState(fireState);
       const col = findRowChar(m, 14, 0x30 + shots);
@@ -559,10 +580,27 @@ function bridgePriorityRegression(m, dma) {
   col = findRowChar(m, 14, 0x4D);
   if (col >= 0) clickPointer(m, 14, col);
   const targetCol = findRowRange(m, 14, 0x41, 0x5A);
+  const priorityWrite = m.write, priorityStep = m.cpu.step;
+  let whiteLabelWrites = 0, forwardPaints = 0, backwardPaints = 0;
+  m.write = function (address, value) {
+    if (address >= 0xDA31 && address <= 0xDA39 && (value & 15) === 1 &&
+        rowChar(m, 14, 1) === 0x70 && rowChar(m, 14, 9) === 0x5F) whiteLabelWrites++;
+    return priorityWrite.call(this, address, value);
+  };
+  m.cpu.step = function () {
+    if (!m.cartMode && this.pc === 0x9B85) forwardPaints++;
+    if (!m.cartMode && this.pc === 0x86AD) backwardPaints++;
+    return priorityStep.call(this);
+  };
   if (targetCol >= 0) clickPointer(m, 14, targetCol);
   const priorityCol = findRowChar(m, 14, 0x31);
   const priorityLabelCol = findRowChar(m, 14, 0x70);
   if (priorityLabelCol >= 0) pointerTo(m, 14, priorityLabelCol);
+  // Exercise both native paint loops too, rather than sampling once per frame.
+  for (let i = 0; i < 2; i++) {
+    m.joy2 = 4; frames(m, 4); m.joy2 = 0; frames(m, 4);
+    m.joy2 = 8; frames(m, 4); m.joy2 = 0; frames(m, 4);
+  }
   const labelHoverColor = priorityLabelCol < 0 ? -1 : m.colorRam[14 * 40 + priorityLabelCol];
   const selectionBeforeLabelClick = m.ram[0x0774];
   const priorityBeforeLabelClick = m.ram[SYM.CMDPOS + 2];
@@ -592,6 +630,10 @@ function bridgePriorityRegression(m, dma) {
         label + 'default HTML cartridge accepts Priority 1 without flashing its label white');
   check(labelClickColors.every(c => c === 3),
         label + 'priority label never flashes white while the native choice is fired (' + labelClickColors.join(',') + ')');
+  check(forwardPaints > 0 && backwardPaints > 0 && whiteLabelWrites === 0,
+        label + 'both native paint loops skip priority label cells at instruction granularity (' + forwardPaints + '/' + backwardPaints + '; white writes ' + whiteLabelWrites + ')');
+  m.write = priorityWrite;
+  m.cpu.step = priorityStep;
   m.loadState(originalState);
 }
 bridgeGames.forEach((m, i) => bridgePriorityRegression(m, !!i));

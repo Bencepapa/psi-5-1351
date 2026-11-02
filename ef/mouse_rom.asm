@@ -2,7 +2,7 @@
 ; Only touches I/O, RAM below $8000 and the RAM part's variables.
 ; Pointer: sprite 7 in the text rows, multiplexed by the RAM part (the ships use it above the
 ; split). Mouse in port 2.
-; - menu-row hover drives the game's native cursor; click fires that cursor (no text parsing/overlay)
+; - menu-row hover sets the native cursor and command ordinal directly; click fires that choice
 ; - while the game asks for an item or a position: click a list row = that letter or row number
 ; - otherwise, on the list screens:
 ;   Engineering status: click a device = enable/cancel it ($95AC)
@@ -45,6 +45,7 @@ FLASHLEN = 40            ; frames
         JMP MSPR
         JMP MTOP
         JMP MXOR
+        JMP MREST
 ; ---- IRQ: pots, pointer ----
 MPRE:   LDA $D419
         AND $D41A
@@ -107,7 +108,6 @@ MP7:
 MP9:    LDA INTXT
         ORA #1          ; visual update pending for the main menu loop
         STA INTXT
-        JSR LABELS      ; menu feedback must also work while the main loop is busy
         LDA CROW
         CMP #14
         BNE MPDONE
@@ -118,7 +118,8 @@ MP9:    LDA INTXT
 MPDONE:
         RTS
 ; ---- list colours: the dragged row grey, then a flash of the rows that changed ----
-VIS:    LDA CANCEL
+VIS:    JSR LABELS      ; safety net outside the raster-critical input path
+        LDA CANCEL
         BEQ VGO
         JMP VCANCEL
 VGO:    LDA BTN
@@ -258,7 +259,7 @@ VFRNEXT:TXA
         STA FLT
         RTS
 ; ---- hover: list actions use a mouse preview; menu-row hover drives the native cursor ----
-; HOVR/HOVS/HOVE: list overlay row and bounds, or menu marker/word start/pulse phase. HOVD1/HOVD2
+; HOVR/HOVS/HOVE: list overlay row and bounds, or menu marker/word start/unused zero. HOVD1/HOVD2
 ; hold the current word's screen columns. The menu's native cursor endpoint is at $0774.
 HOVER:  LDA BTN
         ORA DRAGR
@@ -314,7 +315,7 @@ HM6:    LDA HOVS
         CMP HOVD1
         BEQ HM7
         LDA #0
-        STA HOVE        ; a new target starts with a fresh joystick pulse phase
+        STA HOVE        ; menu targets do not use list end-column bounds
 HM7:    LDA #14
         STA HOVR        ; mark a native menu target; do not paint a second highlight
         LDA HOVD1
@@ -642,9 +643,7 @@ MJR0:   LDA BTN
         STA RROW
         LDA #1
         STA CLICK
-MJ5:    LDA #0
-        STA MOLD        ; scratch: synthetic joystick direction (4 = left, 8 = right)
-        LDA MENUON
+MJ5:    LDA MENUON
         BEQ MJN0
         LDA CLICK
         BEQ MJNH
@@ -668,21 +667,7 @@ MJTE:
         AND #$0C
         CMP #$0C        ; physical joystick direction takes precedence
         BNE MJN0
-        LDA TMP2
-        CMP $0774       ; the game's native highlighted menu word
-        BEQ MJN0
-        LDA HOVE
-        EOR #1
-        STA HOVE
-        BEQ MJN1        ; release between presses without resetting the pulse phase
-        LDA TMP2
-        CMP $0774
-        BCC MJNL
-        LDA #8
-        BNE MJNS
-MJNL:   LDA #4
-MJNS:   STA MOLD
-        BNE MJN1
+        JSR SELECT      ; update the native cursor and command ordinal atomically
 MJN0:   LDA HOVR
         CMP #14
         BNE MJN1        ; HOVE is the list's end column outside native menu targeting
@@ -727,16 +712,66 @@ MJNPEND:
 MJNOFIRE:
         LDA $DC00
         ORA #$11
-MJN2:   LDX MOLD
-        BNE MJD
-        JMP MJ8
-MJD:
-        CPX #8
-        BNE MJN3
-        AND #$F7        ; joystick right is active low on bit 3
-        JMP MJ8
-MJN3:   AND #$FB        ; joystick left is active low on bit 2
+MJN2:
 MJ8:    RTS
+
+; TMP2 = native word endpoint (screen column minus 1). Space-separated words
+; are the game's actual choices; '_' belongs to the priority_1 native word.
+SELECT: LDA TMP2
+        CMP $0774
+        BEQ SEL9
+        CMP #39
+        BCS SEL9
+        LDY #0
+        LDX #0
+SEL0:   LDA $5231,Y
+        CMP #$20
+        BEQ SELSPACE
+        INX
+        STY MNEW
+SELWORD:CPY TMP2
+        BEQ SELFOUND
+        INY
+        LDA $5231,Y
+        CMP #$20
+        BNE SELWORD
+SELSPACE:INY
+        CPY #39
+        BCC SEL0
+SEL9:   RTS
+SELFOUND:
+        STX $3D         ; ordinal used by the native fire handler at $86C0
+        STY $0774
+        LDA MNEW
+        STA $4D
+        LDX $37         ; native cursor moves invalidate deeper remembered choices
+        INX
+        LDA #0
+SELCACHE:STA $0421,X
+        INX
+        CPX #10
+        BNE SELCACHE
+        LDY #39
+        LDA #COLLABEL
+SELCYAN:STA $DA30,Y
+        DEY
+        BPL SELCYAN
+        LDY $4D
+SELWHITE:JSR WPMENU
+        CPY TMP2
+        BEQ SEL9
+        INY
+        BNE SELWHITE
+
+; Restore the command record after a native action, with the mouse bank mapped.
+MREST:  LDY #13
+MRS1:   LDA RECBUF,Y
+        STA $2D,Y
+        DEY
+        BPL MRS1
+        LDA #0
+        STA ACT
+        RTS
 
 ; ---- menu loop: turn a click into a key or an action ----
 ; ROMCALL masks interrupts while ROML is mapped. Run the visual work once per
