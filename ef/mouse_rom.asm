@@ -25,6 +25,7 @@ FLHI     = $DFFE
 FLTGT    = $DFFF
 COLGREY  = 12
 COLHOVER = 1              ; white
+COLLABEL = 3              ; cyan, for non-interactive prompt/suffix text
 HOVC     = $DBE8          ; colour RAM past the screen: holds a colour
 HOVD1    = $53F6          ; unused end of the text screen: scratch
 HOVD2    = $53F7
@@ -44,6 +45,7 @@ FLASHLEN = 40            ; frames
         JMP MSPR
         JMP MTOP
         JMP MXOR
+        JMP MLOAD
 ; ---- IRQ: pots, pointer ----
 MPRE:   LDA $D419
         AND $D41A
@@ -105,7 +107,8 @@ MP6:    STA YP
 MP7:
 MP9:    ; falls through to VIS
 ; ---- list colours: the dragged row grey, then a flash of the rows that changed ----
-VIS:    LDA CANCEL
+VIS:    JSR LABELS       ; labels stay light blue during hover, press and release
+        LDA CANCEL
         BEQ VGO
         JMP VCANCEL
 VGO:    LDA BTN
@@ -238,10 +241,14 @@ HV0:
         LDA MENU,Y
         CMP #$20
         BEQ HVG
+        CMP #$5F        ; the game separates a prompt label from its choices with this
+        BEQ HVG
 HM1:    DEY
         BMI HM2
         LDA MENU,Y
         CMP #$20
+        BEQ HM2
+        CMP #$5F
         BNE HM1
 HM2:    INY
         STY HOVD1
@@ -251,8 +258,17 @@ HM3:    INY
         BCS HM4
         LDA MENU,Y
         CMP #$20
+        BEQ HM4
+        CMP #$5F
         BNE HM3
 HM4:    STY HOVD2
+        LDY HOVD1       ; lower-case words are prompt/suffix labels, not choices
+        LDA MENU,Y
+        CMP #'a'
+        BCC HM5
+        CMP #'z'+1
+        BCC HVG
+HM5:
         LDA #14
         STA MOLD
 HVG:    JMP HVSET
@@ -319,6 +335,44 @@ HV1:    JSR HVCLR
         LDA #COLHOVER
         JMP HVPNT
 HV9:    RTS
+; Lower-case words are explanatory labels. Repaint them independently of hover so a click cannot
+; flash them white; choices such as At-will start with an upper-case shortcut and remain active.
+LABELS: LDA MENUON
+        BEQ LB9
+        LDY #0
+LB0:    CPY #40
+        BCS LB9
+        LDA MENU,Y
+        CMP #$20
+        BEQ LB1
+        CMP #$5F
+        BEQ LB1
+        CMP #'a'
+        BCC LB4
+        CMP #'z'+1
+        BCS LB4
+LB2:    LDA #COLLABEL
+        STA $DA30,Y
+        INY
+        CPY #40
+        BCS LB9
+        LDA MENU,Y
+        CMP #$20
+        BEQ LB0
+        CMP #$5F
+        BNE LB2
+        BEQ LB0
+LB4:    INY             ; skip an interactive word
+        CPY #40
+        BCS LB9
+        LDA MENU,Y
+        CMP #$20
+        BEQ LB0
+        CMP #$5F
+        BNE LB4
+LB1:    INY
+        BNE LB0
+LB9:    RTS
 ; hover off: the cells get their colour back
 HVCLR:  LDX HOVR
         BEQ HV9
@@ -494,7 +548,13 @@ ML0:    LDA TMP3
         LDA BTN
         BNE MJ5
         INC BTN         ; press: remember the cell
-        LDA CCOL
+        LDA HOVR        ; use the menu word visibly highlighted before the press
+        CMP #14
+        BNE MJPOS
+        LDA HOVS
+        BPL MJCOL
+MJPOS:  LDA CCOL
+MJCOL:
         STA PCOL
         LDA CROW
         STA PROW
@@ -544,8 +604,12 @@ MK0:    LSR CLICK
         LDA MENU,X
         CMP #$20
         BEQ MKX
+        CMP #$5F
+        BEQ MKX
 MK2:    LDA MENU,X      ; back to the start of the word
         CMP #$20
+        BEQ MK3
+        CMP #$5F
         BEQ MK3
         DEX
         BPL MK2
@@ -553,6 +617,11 @@ MK3:    INX
         CPX #40
         BCS MKX
         LDA MENU,X
+        CMP #'a'        ; prompt/suffix labels such as priority and robodroids
+        BCC MK3A
+        CMP #'z'+1
+        BCC MKX
+MK3A:
         CMP #'?'
         BNE MK4A
         LDA #'/'
