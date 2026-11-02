@@ -267,7 +267,10 @@ HM4:    STY HOVD2
         CMP #'a'
         BCC HM5
         CMP #'z'+1
-        BCC HVG
+        BCS HM5
+        LDA #0
+        STA MOLD
+        BEQ HVG
 HM5:
         LDA #14
         STA MOLD
