@@ -55,7 +55,7 @@ TKEY:   LDX #<MKEY
         LDA ACTA        ; 1 = enable, 0 = cancel the device in $2F
         JSR $95AC
         JMP TK8
-TKR:    JSR $8AE7       ; rank $2F to position $30 in department $38/$39
+TKR:    JSR $8AE7       ; Nav always selects rank 1; other departments use $30
         JMP TK8
 TKE:    JSR $8CFC       ; examine target $2F
 TK8:    LDY #13

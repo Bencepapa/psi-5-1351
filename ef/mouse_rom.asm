@@ -19,7 +19,7 @@ MENU     = $5000+14*40
 LIST0    = 17            ; first list row
 DRAGR    = $DFFA         ; greyed row while dragging, 0 = none (end of the cartridge's RAM)
 BASEC    = $DFFB         ; the list rows' colour
-FLT      = $DFFC         ; flash: frames left, $FF = start it
+FLT      = $DFFC         ; flash: frames left, $FF = start; $80|row paint, $C0|row restore
 FLLO     = $DFFD         ; rows FLLO-FLHI changed, FLTGT is the moved one
 FLHI     = $DFFE
 FLTGT    = $DFFF
@@ -104,10 +104,21 @@ MP6:    STA YP
         LDA #$80
         STA SPM
 MP7:
-MP9:    ; falls through to VIS
+MP9:    LDA INTXT
+        ORA #1          ; visual update pending for the main menu loop
+        STA INTXT
+        JSR LABELS      ; menu feedback must also work while the main loop is busy
+        LDA CROW
+        CMP #14
+        BNE MPDONE
+        LDA HOVR
+        CMP #LIST0
+        BCS MPDONE      ; removing an old list overlay belongs to the main-loop update
+        JMP HOVER       ; native menu targeting; no list scan or row paint
+MPDONE:
+        RTS
 ; ---- list colours: the dragged row grey, then a flash of the rows that changed ----
-VIS:    JSR LABELS       ; labels stay light blue during hover, press and release
-        LDA CANCEL
+VIS:    LDA CANCEL
         BEQ VGO
         JMP VCANCEL
 VGO:    LDA BTN
@@ -131,8 +142,11 @@ VRANK:
 VITEM:
         LDX PROW
         STX DRAGR
+        LDA FLT
+        BNE VBASE       ; existing flash colours are temporary, keep the original base
         JSR COLRD
         STA BASEC
+VBASE:
         LDA #COLGREY
         LDX PROW
         JSR PAINT
@@ -198,7 +212,15 @@ VFL:    LDA FLT
         JMP HOVER
 VFL1:
         CMP #$FF
-        BNE VF3
+        BEQ VFSTART
+        CMP #$C0
+        BCS VFREST
+        CMP #$80
+        BCC VF3
+        AND #$1F
+        TAX
+        JMP VF1
+VFSTART:
         LDX FLLO
 VF1:    LDA #COLSHIFT
         CPX FLTGT
@@ -207,20 +229,33 @@ VF1:    LDA #COLSHIFT
 VF2:    JSR PAINT
         INX
         CPX FLHI
-        BCC VF1
-        BEQ VF1
+        BCC VFNEXT
+        BEQ VFNEXT
         LDA #FLASHLEN
         STA FLT
 VX:     RTS
+VFNEXT: TXA
+        ORA #$80
+        STA FLT
+        RTS
 VF3:    DEC FLT
         BNE VX
         LDX FLLO
+        JMP VF4
+VFREST: AND #$1F
+        TAX
 VF4:    LDA BASEC
         JSR PAINT
         INX
         CPX FLHI
-        BCC VF4
-        BEQ VF4
+        BCC VFRNEXT
+        BEQ VFRNEXT
+        LDA #0
+        STA FLT
+        RTS
+VFRNEXT:TXA
+        ORA #$C0
+        STA FLT
         RTS
 ; ---- hover: list actions use a mouse preview; menu-row hover drives the native cursor ----
 ; HOVR/HOVS/HOVE: list overlay row and bounds, or menu marker/word start/pulse phase. HOVD1/HOVD2
@@ -443,13 +478,13 @@ RANKABLE: LDA TITLE+1
         LDY #'D'
         CMP #'S'
         BEQ RK1
-        LDA #1          ; Z clear
+        LDA #1          ; Navigation selects a course; it has no drag ranking
         RTS
 RK1:    TYA
         CMP TITLE,X
         RTS
-; A = colour, X = row: paints the row, keeps X. Runs in the IRQ only: too slow for the menu loop,
-; where it would delay the raster split.
+; A = colour, X = row: paints the row, keeps X. Visual updates run in the
+; main loop's lower-screen window; never paint list rows from the split IRQ.
 PAINT:  STA TMP3
         TXA
         PHA
@@ -648,7 +683,10 @@ MJTE:
 MJNL:   LDA #4
 MJNS:   STA MOLD
         BNE MJN1
-MJN0:   LDA #0
+MJN0:   LDA HOVR
+        CMP #14
+        BNE MJN1        ; HOVE is the list's end column outside native menu targeting
+        LDA #0
         STA HOVE
 MJN1:   LDA $DC00
         ORA #$11        ; the mouse's own lines are not a joystick
@@ -701,7 +739,29 @@ MJN3:   AND #$FB        ; joystick left is active low on bit 2
 MJ8:    RTS
 
 ; ---- menu loop: turn a click into a key or an action ----
-MKEY:   LDA #6
+; ROMCALL masks interrupts while ROML is mapped. Run the visual work once per
+; frame, starting on PAL lines 240-295, before the $2D top split next frame.
+; INTXT bit 0 is pending; bits 6/7 retain their sprite meanings.
+MKEY:   LDA INTXT
+        AND #1
+        BEQ MKVIS9
+        LDA $D011
+        BMI MKVHIGH
+        LDA $D012
+        CMP #240
+        BCC MKVIS9
+        BCS MKVRUN
+MKVHIGH:LDA $D012
+        CMP #40
+        BCS MKVIS9
+        LDA $D011       ; reject a frame wrap between the two raster reads
+        BPL MKVIS9
+MKVRUN:
+        LDA INTXT
+        AND #$FE
+        STA INTXT
+        JSR VIS
+MKVIS9: LDA #6
         STA MENUON
         LDA RCLICK
         BEQ MK0
@@ -796,7 +856,9 @@ MKIDLE: LDA MENU,X
         BEQ MKX3
         LDA TITLE+1
         CMP #'E'
-        BEQ MKENG
+        BNE MKI1
+        JMP MKENG
+MKI1:
         CMP #'N'
         BEQ MKNAV
         CMP #'W'
@@ -810,7 +872,7 @@ MKIDLE: LDA MENU,X
         BNE MKSCAN
         LDA #'S'
         LDX #2
-        BNE DRAG
+        JMP DRAG
 MKSCAN: JSR SAMEROW     ; SCANNING STATUS REPORT: examine
         BNE MKX3
         JSR SAVE
@@ -829,7 +891,7 @@ MKREP:  LDA TITLE+8     ; REPAIR -- FIX-IT LIST
         BNE MKREP1
         LDA #'R'
         LDX #3
-        BNE DRAG
+        JMP DRAG
 MKREP1: JSR SAMEROW     ; REPAIR STATUS: Assign, the game then asks how many robodroids
         BNE MKX3
         LDA #'A'
@@ -841,13 +903,8 @@ MKWEAP: LDA TITLE+9     ; WEAPONS - FIRING ORDERS LIST
         BNE MKX3
         LDA #'W'
         LDX #1
-        BNE DRAG
-MKNAV:  JSR SAMEROW     ; a course on either Navigation list: select it
-        BNE MKX3
-        LDA #'N'
-        LDX #0
-        LDY #'1'
-        JMP RANK
+        JMP DRAG
+MKNAV:  JMP NAVCLICK
 MKENG:  LDA TITLE+13
         CMP #'S'
         BNE MKENG1
@@ -857,11 +914,17 @@ MKENG1: CMP #'-'
         LDA #'E'
         LDX #4
 DRAG:   TAY             ; drag to another list row = rank there
+        LDA #0
+        STA MOLD        ; distinguish real row moves from Navigation Status selection
         LDA RROW
         CMP PROW
-        BEQ MKX2
+        BNE DRAG1
+        JMP MKX2
+DRAG1:
         CMP #LIST0
-        BCC MKX2
+        BCS DRAG2
+        JMP MKX2
+DRAG2:
         SEC
         SBC #LIST0-'1'
         STA TMP2
@@ -896,6 +959,14 @@ RN1:    LDA FLTGT       ; past the end of the list: the last item's row
         INC FLTGT
 RN2:    PLA
         STA PROW
+        LDA MOLD
+        CMP #1
+        BNE RNBASE
+        LDA #2
+        STA ACT
+        RTS             ; Navigation Status selects the course, but does not flash a ranked range
+RNBASE: LDA FLT
+        BNE RN3         ; a quick second rank must not save blue/yellow as its base
         LDA DRAGR       ; (otherwise BASEC is still valid)
         BNE RN3
         LDX PROW
@@ -905,21 +976,39 @@ RN3:    LDA PROW
         LDX FLTGT
         CMP FLTGT
         BCC RN4
-        STX FLLO
-        STA FLHI
+        STX TMP2
+        STA TMP3
         BCS RN5
-RN4:    STA FLLO
-        STX FLHI
-RN5:    LDA #$FF
+RN4:    STA TMP2
+        STX TMP3
+RN5:    LDA FLT
+        BEQ RNRANGE
+        LDA FLLO        ; keep every earlier painted row in the eventual cleanup range
+        CMP TMP2
+        BCS RNOLDHI
+        STA TMP2
+RNOLDHI:LDA FLHI
+        CMP TMP3
+        BCC RNRANGE
+        STA TMP3
+RNRANGE:LDA TMP2
+        STA FLLO
+        LDA TMP3
+        STA FLHI
+        LDA #$FF
         STA FLT
         LDA #2
         STA ACT
 MKX2:   RTS
 MKSTAT: JSR SAMEROW     ; ENGINEERING STATUS REPORT: click a device = toggle it
-        BNE MKX2
+        BEQ MKST1
+        RTS
+MKST1:
         LDA ACTARG
         CMP #'M'
-        BCS MKX2
+        BCC MKST2
+        RTS
+MKST2:
         SEC
         SBC #'A'
         TAX
@@ -1001,24 +1090,14 @@ CHARAT: STY TMP
         STA PEEK+2
         JMP PEEK
 
-; X = row -> A = low byte, X = high byte of row*40 (carry clear). Uses RCA as scratch.
-ROWADR: LDA #0
-        STA RCA
-        TXA
-        ASL A
-        ASL A
-        ASL A           ; *8 (rows < 32)
-        STA MNEW
-        ASL A
-        ROL RCA
-        ASL A
-        ROL RCA         ; *32
+; X = row -> A = low byte, X = high byte of row*40 (carry clear).
+; Screen geometry is fixed: use offsets instead of multiplying for every cell probe.
+ROWADR: LDA ROWLO,X
+        PHA
+        LDA ROWHI,X
+        TAX
+        PLA
         CLC
-        ADC MNEW        ; *40
-        BCC RA1
-        INC RCA
-        CLC
-RA1:    LDX RCA
         RTS
 
 ; CBM MOVCHK: A = new pot, Y = old -> A = signed delta, Y = value to keep
@@ -1041,6 +1120,31 @@ MV1:    LSR A
         BEQ MVZERO
 MVOK:   LDY MNEW
 MVZERO: RTS             ; (A = 0, Y = old)
+
+NAVCLICK:
+        LDA TITLE+12
+        CMP #'-'
+        BNE NAVSEL
+        JSR SAMEROW
+        BEQ NAVONE
+        RTS             ; Display uses a click, not drag-and-drop
+NAVONE: LDA #0
+        BEQ NAVRANK
+NAVSEL: LDA #1
+NAVRANK:STA MOLD
+        LDA #'N'
+        LDX #0
+        LDY #'1'
+        JMP RANK
+
+ROWLO:  .byte $00,$28,$50,$78,$A0,$C8,$F0,$18
+        .byte $40,$68,$90,$B8,$E0,$08,$30,$58
+        .byte $80,$A8,$D0,$F8,$20,$48,$70,$98
+        .byte $C0,$E8,$10,$38,$60,$88,$B0,$D8
+ROWHI:  .byte 0,0,0,0,0,0,0,1
+        .byte 1,1,1,1,1,2,2,2
+        .byte 2,2,2,2,3,3,3,3
+        .byte 3,3,4,4,4,4,4,4
 
 ; the arrow, multicolour (white, black outline): tip at the sprite's top left corner
 SHAPE:

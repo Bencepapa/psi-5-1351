@@ -24,7 +24,7 @@ The mouse is in port 2; press `Alt+Q` to grab the mouse.
 
 ## Build notes
 
-`python ef/efbuild.py` needs the original disk `PSI-5 +4D 101% ATA.d64`, the snapshot files under `tools/`, VICE's `c1541.exe`, and the `asm6502` assembler from the sibling `mousegui` project at `C:\dev\c64\mousegui\tools`. The original disk is not in this repository.
+`python ef/efbuild.py` needs the original disk `PSI-5 +4D 101% ATA.d64`, the snapshot files under `tools/`, and the `asm6502` assembler from the sibling `mousegui` project at `C:\dev\c64\mousegui\tools`. It reads the D64 directly in Python; `c1541.exe` is not needed for building. The original disk is not in this repository.
 
 ### Generating snapshot files
 

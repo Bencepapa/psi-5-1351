@@ -15,7 +15,8 @@ Build: `python ef/efbuild.py`. Run: `x64sc -cartcrt psi5_ef.crt -controlport2dev
 | Click a word on the menu row | Types its shortcut key: departments, Status, Display, `?`, Cancel, Rank, letters, numbers and the back arrow |
 | Engineering **Status**: click a device row | Enables or cancels the device (`$95AC`), so it shows RqE/RqC like the menu does |
 | Engineering **Display**, Weapons firing orders, Repair fix-it, Scan detailed examination: drag a row to another row | Ranks the item at the new position (`$8AE7`) |
-| Navigation lists: click a course | Selects it (`$8AE7`, rank 1) |
+| Navigation **Status**: click a course | Selects it without rank-row flashing |
+| Navigation **Display**: click a course | Moves it to position 1; the selected course flashes yellow and shifted rows blue. No drag preview. |
 | Scan **Status**: click a target | Examines it (`$8CFC`) |
 | Repair **Status**: click a damaged item | Types Assign and its letter; the game then asks how many robodroids |
 | A list while the game asks for a letter or number | Types the clicked row's item letter or row number |
@@ -23,8 +24,8 @@ Build: `python ef/efbuild.py`. Run: `x64sc -cartcrt psi5_ef.crt -controlport2dev
 | Joystick, keyboard | Work as before |
 
 **How it fits:**
-- The cartridge replaces the Krill disk loader, which frees `$0210-$02FF` (checked: never written during play).
-- The mouse RAM part is all in `$0210-$02FF`. `$0334-$03F2` can't be used: file loads overwrite it (`dp` loads at `$0374`).
+- The cartridge replaces the Krill disk loader; the mouse RAM part occupies `$0210-$02FF`.
+- `$0334-$03F2` can't be used: file loads overwrite it (`dp` loads at `$0374`).
 - These hold small trampolines: they map the mouse code's ROM bank (bank 1, 8K mode, `$01=$37`), call it, and switch the cartridge off again.
 - The game's routines are called from RAM with the cartridge off.
 - Hooks in `mx`:
@@ -49,6 +50,10 @@ A menu-row hover now drives the game's own left/right selection until its cursor
 On a list row, the mouse still finds the item letter in the clicked column (including the two-column device lists). If the game is asking for a letter or number, it types the clicked item letter or row number. Otherwise it acts by the screen title: Engineering Status toggles a device, Navigation selects a course, Scan Status examines a target, Repair Status types Assign and its letter, and the priority lists rank on a drag. Before acting it saves `$2D-$3A` in `RECBUF` and restores it afterwards, so a half-typed command survives.
 
 **Sources:** `ef/mouse_ram.asm`, `ef/mouse_rom.asm`; the cartridge itself is `ef/ef_boot.asm`, `ef/ef_res.asm` and `ef/efbuild.py`.
+
+List recognition still reads the rendered item letters and title; the original game does not register mouse rectangles when drawing tables. `ROWADR` now uses fixed row-offset tables. List hover, drag preview and flash painting run once per pending frame from `MKEY`, starting on PAL raster lines 240-295. `ROMCALL` masks interrupts while mapping ROML, so this work is restricted to that window. The split IRQ retains pointer/input work and native menu targeting. Flash setup and restoration paint one row per update. `HOVE` stores either a list's end column or the native menu pulse phase; joystick polling resets it only for native menu targets, preserving list bounds.
+
+Navigation uses the native `$8AE7` routine, which selects position 1. Status selection suppresses rank feedback; Display selection retains it. A new rank during an existing flash keeps `BASEC` and merges the old and new row ranges, so every previously painted row is eventually restored even if a list item disappears.
 
 **Feedback:** on the menu row, the game's native active selection follows the pointer and is the only white highlight. List-row clicks retain their own white row/column preview; a dragged row in a priority list turns grey and the row under the pointer yellow, the row it would land on. After the rank the moved row flashes yellow and the shifted rows blue for 40 frames. Clicking the back arrow, or the right button anywhere in the bridge menus, goes back; during a drag the right button cancels it. The trainer prompt and crew selection don't have this: they use another key queue.
 

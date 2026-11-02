@@ -46,5 +46,7 @@ The generated download name comes from the selected cartridge filename. Mouse la
 - left/right joystick regression with held and tapped presses, mouse present and absent, on both carts
 - the debugger: a write watch, and a saved state that runs the same 50 frames after loading
 
-The headless suite currently reports cartridge-code failures for the Engineering Status right-column
-J click and the Engineering Display drag preview/rank path; these checks are deliberately not weakened.
+The suite also checks Navigation Status selection without flash, Navigation Display click-to-first
+with yellow/blue feedback, overlapping rank-flash cleanup after a row disappears,
+list-hover column bounds across joystick polls, and visual-update completion before the next
+top raster split. Game-address breakpoints exclude the overlapping mouse ROM bank.

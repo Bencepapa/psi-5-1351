@@ -6,20 +6,20 @@ Inputs: ../tools/snap_ram.bin + snap_io.txt (snapshot at the trainer prompt, too
         the bridge with a crew already chosen),
         ../PSI-5 +4D 101% ATA.d64 (the files, stored as they end up in memory after loading).
 """
-import os, re, subprocess, sys
+import os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, r'C:\dev\c64\mousegui\tools')
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 from asm6502 import assemble
 from krillpack import decode
+from d64read import prg_entries, read_file
 
 BRIDGE = '--bridge' in sys.argv
 ARGS = [a for a in sys.argv[1:] if a != '--bridge']
 SNAP = 'snapb_' if BRIDGE else 'snap_'
 OUT = ARGS[0] if ARGS else os.path.join(ROOT, 'psi5_ef_bridge.crt' if BRIDGE else 'psi5_ef.crt')
 D64 = os.path.join(ROOT, 'PSI-5 +4D 101% ATA.d64')
-C1541 = r'C:\dev\c64\vice\win\bin\c1541.exe'
 _m = re.search(r'\.;([0-9a-f]{4}) (\w\w) (\w\w) (\w\w) (\w\w) (\w\w) (\w\w) ([01]{8})',
                open(os.path.join(ROOT, 'tools', SNAP + 'cpu.txt')).read())
 CPU = dict(pc=int(_m.group(1), 16), a=int(_m.group(2), 16), x=int(_m.group(3), 16), y=int(_m.group(4), 16),
@@ -64,7 +64,7 @@ vic[0x11] &= 0x7F       # the read value's bit 7 is the current raster line, not
 # raster compare: the line the IRQ handler in $0314 expects (the trainer prompt: $99)
 RASTER = {0x8F33: 0x2D, 0x8ECE: 0x9A, 0x8F02: 0xAA}.get(img[0x0314] | img[0x0315] << 8, 0x99)
 
-# ---- mouse support: RAM part at $0210 in the image, ROM part in the last bank ----
+# ---- mouse support: RAM part at $0210 in the image, ROM part in bank 1 ----
 MOUSE = True
 PTRCOL = 1      # pointer colour (outline: black)
 mouse_bank = None
@@ -156,16 +156,12 @@ fixseg = rec(p1 + 0x1000 - 0x0200, 0x1000, 0x1000)
 colseg = rec(p4, 0xD800, 0x0400)
 
 # files: the bytes each load leaves in memory (raw load at L, then unpacked at P)
-lst = subprocess.run([C1541, '-attach', D64, '-dir'], capture_output=True, text=True).stdout
-names = re.findall(r'^\d+\s+"([^"]*)"\s+prg', lst, re.M)
+disk = open(D64, 'rb').read()
 directory = bytearray()
-for nm in names:
+for nm, track, sector in prg_entries(disk):
     if 'docs' in nm or nm.startswith('psi-5 '):
         continue
-    tmp = os.path.join(HERE, 'work_file.prg')
-    subprocess.run([C1541, '-attach', D64, '-read', nm, tmp], capture_output=True)
-    prg = open(tmp, 'rb').read()
-    os.remove(tmp)
+    prg = read_file(disk, track, sector)
     L, s = prg[0] | prg[1] << 8, prg[2:]
     if nm == 'dp':
         start, data = L, bytes(s)

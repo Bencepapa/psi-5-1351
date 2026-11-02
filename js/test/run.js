@@ -131,7 +131,11 @@ function guardedFrames(m, n, label) {
     while (true) {
       const r = m.run();
       if (r === 'frame') break;
-      if (r === 'break') { hit = m.breakInfo.pc; alive = false; break; }
+      if (r === 'break') {
+        // The mouse ROM overlaps these game addresses while bank 1 is mapped.
+        if (m.cartMode && m.efBank === 1) continue;
+        hit = m.breakInfo.pc; alive = false; break;
+      }
       alive = false; break;
     }
     if (m.stopped || m.cpu.jam) alive = false;
@@ -145,6 +149,38 @@ function sidWrites(m) {
   const orig = m.sidWrite.bind(m);
   m.sidWrite = function (r, v) { w.n++; w.regs.add(r); if ((r === 4 || r === 11 || r === 18) && (v & 1)) w.gates++; return orig(r, v); };
   return w;
+}
+
+// Locate the visual call through the cartridge's fixed MKEY entry, so this
+// timing regression does not depend on assembled implementation addresses.
+function visualTiming(m) {
+  const rom = m.cart.banks[1].lo;
+  const key = rom[7] | rom[8] << 8;
+  let call = -1;
+  for (let i = key - 0x8000; i < key - 0x8000 + 64; i++) {
+    if (rom[i] === 0x20 && rom[i + 3] === 0xA9 && rom[i + 4] === 6) { call = i; break; }
+  }
+  if (call < 0) throw new Error('visual main-loop call not found');
+  const entry = rom[call + 1] | rom[call + 2] << 8, end = 0x8000 + call + 3;
+  const t = { count: 0, max: 0, late: 0, outside: 0 };
+  let start = null;
+  const step = m.cpu.step;
+  m.cpu.step = function () {
+    if (m.cartMode && m.efBank === 1) {
+      if (this.pc === entry) {
+        start = { clock: m.now(), raster: m.cycleInFrame(), state: [m.efRam[0xFC], m.ram[SYM.MOUSEBTN], m.ram[SYM.POINTERROW]] };
+        const line = Math.floor(start.raster / 63);
+        if (line < 240 || line > 297) { t.outside++; t.detailOutside = [line, start.state]; }
+      } else if (this.pc === end && start) {
+        const elapsed = m.now() - start.clock;
+        t.count++; t.max = Math.max(t.max, elapsed);
+        if (elapsed >= 357 * 63 - start.raster) { t.late++; t.detail = [Math.floor(start.raster / 63), elapsed, start.state]; }
+        start = null;
+      }
+    }
+    return step.call(this);
+  };
+  return t;
 }
 
 // ---- 1. cartridge and chips ---------------------------------------------------------
@@ -274,6 +310,7 @@ function playthrough(dma) {
   const tag = dma ? 'dma' : 'plain';
   const label = (dma ? 'm.dma' : 'page speed') + ': ';
   const m = boot(dma, 'full');
+  const visual = visualTiming(m);
   const sid = sidWrites(m);
 
   check(until(m, 0x0CA0, 0x0CC0, 600) && !m.stopped, label + 'boots through the cartridge to the trainer prompt (PC $' + hx(m.cpu.pc) + ', frame ' + m.frame + ')');
@@ -329,6 +366,7 @@ function playthrough(dma) {
   frames(m, 400);
   const after = snap(m, tag + '-8-departure');
   check(after.lit !== before.lit && m.ram[SYM.MOUSEMENUON] !== 0, label + 'a click began the mission: the menu row appears (' + before.lit + ' -> ' + after.lit + ' lit pixels)');
+  const idleBridgeState = m.saveState();
   // Hovering Eng. moves the game's native menu cursor before a click fires it.
   pointerTo(m, 14, 24);
   check(m.ram[SYM.POINTERROW] === 14 && m.ram[SYM.POINTERCOL] >= 23 && m.ram[SYM.POINTERCOL] <= 26, label + 'pointer on the word Eng. (row ' + m.ram[SYM.POINTERROW] + ', column ' + m.ram[SYM.POINTERCOL] + ')');
@@ -347,6 +385,8 @@ function playthrough(dma) {
   check(m.ram[SYM.CMDCMD] === 0x53 && dev.some(v => v & 0x80), label + 'the click on Status shows the device list (command $' + hx(m.ram[SYM.CMDCMD]) + ', devices ' + dev.map(hx).join(' ') + ')');
   // click a device row: enable / cancel through the game's own routine
   pointerTo(m, 18, 2);
+  check(m.ram[SYM.HOVERROW] === 18 && m.ram[SYM.HOVEREND] === 20,
+        label + 'list hover keeps its column boundary across joystick polls');
   const dev0 = dev.join(',');
   m.mouse.left = true; frames(m, 8); m.mouse.left = false; frames(m, 200);
   const dev1 = [...m.ram.slice(SYM.DEVSTATE, SYM.DEVSTATE + 12)].join(',');
@@ -370,6 +410,7 @@ function playthrough(dma) {
     m.loadState(engineeringMenuState);
     const displayCol = findRowChar(m, 14, 0x44);
    if (displayCol >= 0) clickPointer(m, 14, displayCol);
+    const engineeringDisplayState = m.saveState();
     const dragRow = 18, dropRow = 20;
    pointerTo(m, dragRow, 2); m.mouse.left = true; frames(m, 20);
     const dragColor = m.colorRam[dragRow * 40 + 3];
@@ -378,6 +419,25 @@ function playthrough(dma) {
     m.mouse.left = false; frames(m, 80);
     check(m.ram[SYM.CMDCMD] === 0x44 || m.ram[SYM.CMDCMD] === 0x52 || m.ram[SYM.CMDCMD] === 0x57, label + 'releasing a drag ranks and flashes the selected item (command $' + hx(m.ram[SYM.CMDCMD]) + ')');
     snap(m, tag + '-13-drag');
+    // A second rank during the first flash must preserve the original colour
+    // and restore the union of both ranges, including a row that disappears.
+    m.loadState(engineeringDisplayState);
+    pointerTo(m, 18, 2);
+    const listBase = m.colorRam[21 * 40 + 3];
+    m.mouse.left = true; frames(m, 4);
+    m.moveMouse(0, -24); frames(m, 4); // row 18 -> 21 in one 1351 motion
+    m.mouse.left = false; frames(m, 6);
+    const firstFlashActive = m.efRam[0xFC] !== 0;
+    m.moveMouse(0, 16); frames(m, 4); // row 21 -> 19, inside the blue range
+    m.mouse.left = true; frames(m, 4);
+    m.moveMouse(0, 8); frames(m, 4); // new range is only rows 18-19
+    m.mouse.left = false; frames(m, 6);
+    const keptBase = m.efRam[0xFB] === listBase;
+    m.ram.fill(0x20, SYM.TEXTSCREEN + 21 * 40, SYM.TEXTSCREEN + 22 * 40);
+    frames(m, 100);
+    check(firstFlashActive && keptBase && m.efRam[0xFC] === 0 &&
+          [19,20,21].every(row => m.colorRam[row * 40 + 3] === listBase),
+          label + 'overlapping rank flashes restore all earlier rows after a row disappears');
     // Weapons / Fire: narrow numeric choices must hit their exact cells.
     m.loadState(engineeringMenuState);
     m.mouse.right = true; frames(m, 8); m.mouse.right = false; frames(m, 120);
@@ -405,6 +465,61 @@ function playthrough(dma) {
     if (priorityCol >= 0) clickPointer(m, 14, priorityCol);
     check(targetCol >= 0 && priorityCol >= 0 && m.ram[SYM.CMDPOS + 2] === 0x31,
           label + 'Weapons Fire Priority 1 is clickable (menu "' + priorityMenu.trimEnd() + '")');
+    m.loadState(idleBridgeState);
+
+    // Navigation Status course clicks select without queue-rank row flashes.
+    const navTab = findRowChar(m, 14, 0x4E);
+    if (navTab >= 0) clickPointer(m, 14, navTab);
+    const navStatusOption = findRowChar(m, 14, 0x53);
+    if (navStatusOption >= 0) clickPointer(m, 14, navStatusOption);
+    const navStatus = String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 15 * 40, SYM.TEXTSCREEN + 16 * 40));
+    const navStatusCourse = 21;
+    const statusCourseExists = findRowChar(m, navStatusCourse, 0x42) >= 0;
+    let statusFlash = false, statusRank = null;
+    const statusStep = m.cpu.step;
+    m.cpu.step = function () {
+      if (this.pc === 0x8AE9 && m.cartMode === 0) statusRank = [m.ram[0x2F], this.a, m.ram[0x39]];
+      if (m.efRam[0xFC]) statusFlash = true;
+      return statusStep.call(this);
+    };
+    if (statusCourseExists) clickPointer(m, navStatusCourse, 2);
+    m.cpu.step = statusStep;
+    check(navTab >= 0 && navStatus.indexOf('NAVIGATION STATUS') >= 0 && statusCourseExists && !statusFlash &&
+          statusRank && statusRank[0] === 0x42 && statusRank[1] === 0x31 && statusRank[2] === 0,
+          label + 'Navigation Status course clicks select without rank-flash feedback (title ' + navStatus.trimEnd() + '; course ' + statusCourseExists + ')');
+
+    const displayOption = findRowChar(m, 14, 0x44);
+    if (displayOption >= 0) clickPointer(m, 14, displayOption);
+    const navDisplayTitle = String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 15 * 40, SYM.TEXTSCREEN + 16 * 40));
+    const navRows = [17,18,19,20,21].map(row => String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + row * 40, SYM.TEXTSCREEN + row * 40 + 40)).trimEnd());
+    const navSource = 18;
+    if (navDisplayTitle.includes('NAVIGATION - POSSIBLE COURSES')) {
+      pointerTo(m, navSource, 2);
+      const navLetter = rowChar(m, navSource, 2);
+      let movedYellow = false, shiftedBlue = false;
+      const displayStep = m.cpu.step;
+      m.cpu.step = function () {
+        if (m.efRam[0xFC]) {
+          if (m.colorRam[17 * 40 + 3] === 7) movedYellow = true;
+          if (m.colorRam[18 * 40 + 3] === 6) shiftedBlue = true;
+        }
+        return displayStep.call(this);
+      };
+      m.mouse.left = true;
+      frames(m, 8);
+      check(m.efRam[0xFA] === 0, label + 'Navigation Display press has no drag preview');
+      m.mouse.left = false;
+      frames(m, 120);
+      m.cpu.step = displayStep;
+      check(rowChar(m, 17, 2) === navLetter,
+            label + 'Navigation Display click puts the selected course first');
+      check(movedYellow && shiftedBlue,
+            label + 'Navigation Display highlights the moved course yellow and shifted rows blue');
+    } else {
+      check(false, label + 'Navigation Display courses visible (title "' + navDisplayTitle.trimEnd() + '"; ' + navRows.join(' | ') + ')');
+    }
+    check(visual.count > 0 && visual.late === 0 && visual.outside === 0,
+          label + 'list visuals finish before the top raster split (' + visual.count + ' updates; max ' + visual.max + ' cycles; late ' + visual.late + '; ' + JSON.stringify([visual.detail, visual.detailOutside]) + ')');
     return { m, sid, tag, label };
 }
 
@@ -433,6 +548,7 @@ const games = [false, true].map(playthrough);
 
 function bridgePriorityRegression(m, dma) {
   const label = (dma ? 'bridge m.dma' : 'bridge page speed') + ': ';
+  const originalState = m.saveState();
   clickPointer(m, 14, 39, true);
   const weaponsCol = findRowChar(m, 14, 0x57);
   if (weaponsCol >= 0) clickPointer(m, 14, weaponsCol);
@@ -461,15 +577,22 @@ function bridgePriorityRegression(m, dma) {
   const nativeChoice = priorityCol >= 0 && m.ram[0x0774] === m.ram[0x53F7] - 2;
   check(priorityCol >= 0 && priorityLabelCol >= 0 && nativeChoice && choiceColor === 1 && labelColor === 3 && separatorColor === 3,
         label + 'only Priority 1 is the native white highlight; label/separator stay cyan (' + labelColor + '/' + separatorColor + '/' + choiceColor + ')');
+  const labelClickColors = [];
   if (priorityCol >= 0) {
     m.mouse.left = true;
-    frames(m, 4);
+    for (let i = 0; i < 8; i++) {
+      frames(m, 1);
+      labelClickColors.push(m.colorRam[14 * 40 + priorityLabelCol]);
+    }
   }
   const heldLabelColor = priorityLabelCol < 0 ? -1 : m.colorRam[14 * 40 + priorityLabelCol];
   m.mouse.left = false;
   frames(m, 120);
   check(targetCol >= 0 && heldLabelColor === 3 && m.ram[SYM.CMDPOS + 2] === 0x31,
         label + 'default HTML cartridge accepts Priority 1 without flashing its label white');
+  check(labelClickColors.every(c => c === 3),
+        label + 'priority label never flashes white while the native choice is fired (' + labelClickColors.join(',') + ')');
+  m.loadState(originalState);
 }
 bridgeGames.forEach((m, i) => bridgePriorityRegression(m, !!i));
 

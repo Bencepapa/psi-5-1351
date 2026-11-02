@@ -81,3 +81,6 @@ MOUSEBTN        $028E   ; assembler label BTN
 MOUSECLICK      $028F   ; assembler label CLICK
 MOUSEMENUON     $0290   ; assembler label MENUON
 MOUSEON         $0294   ; assembler label MOUSEON
+HOVERROW        $02A4   ; list row, or 14 for a native menu target
+HOVERSTART      $02A5   ; list start column / native menu word start
+HOVEREND        $02A6   ; list end column / native menu pulse phase
