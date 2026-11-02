@@ -2,7 +2,7 @@
 ; Only touches I/O, RAM below $8000 and the RAM part's variables.
 ; Pointer: sprite 7 in the text rows, multiplexed by the RAM part (the ships use it above the
 ; split). Mouse in port 2.
-; - click a word on the menu row (row 14): its shortcut key goes into the game's key queue
+; - menu-row hover drives the game's native cursor; click fires that cursor (no text parsing/overlay)
 ; - while the game asks for an item or a position: click a list row = that letter or row number
 ; - otherwise, on the list screens:
 ;   Engineering status: click a device = enable/cancel it ($95AC)
@@ -45,7 +45,6 @@ FLASHLEN = 40            ; frames
         JMP MSPR
         JMP MTOP
         JMP MXOR
-        JMP MLOAD
 ; ---- IRQ: pots, pointer ----
 MPRE:   LDA $D419
         AND $D41A
@@ -223,9 +222,9 @@ VF4:    LDA BASEC
         BCC VF4
         BEQ VF4
         RTS
-; ---- hover: what a click would act on turns white, as the game's own highlights ----
-; HOVR/HOVS/HOVE: the painted row (0 = none) and its columns; its colour is kept in an unused
-; colour RAM cell. MOLD, HOVD1, HOVD2: the wanted row and columns, only used in here.
+; ---- hover: list actions use a mouse preview; menu-row hover drives the native cursor ----
+; HOVR/HOVS/HOVE: list overlay row and bounds, or menu marker/word start/pulse phase. HOVD1/HOVD2
+; hold the current word's screen columns. The menu's native cursor endpoint is at $0774.
 HOVER:  LDA BTN
         ORA DRAGR
         BEQ HV0
@@ -267,13 +266,25 @@ HM4:    STY HOVD2
         CMP #'a'
         BCC HM5
         CMP #'z'+1
-        BCS HM5
-        LDA #0
-        STA MOLD
-        BEQ HVG
+        BCC HVG
 HM5:
-        LDA #14
-        STA MOLD
+        LDA HOVR
+        CMP #14
+        BEQ HM6
+        JSR HVCLR       ; leave any list-row overlay before switching to native menu selection
+        LDA #0
+        STA HOVE
+        BEQ HM7
+HM6:    LDA HOVS
+        CMP HOVD1
+        BEQ HM7
+        LDA #0
+        STA HOVE        ; a new target starts with a fresh joystick pulse phase
+HM7:    LDA #14
+        STA HOVR        ; mark a native menu target; do not paint a second highlight
+        LDA HOVD1
+        STA HOVS
+        RTS
 HVG:    JMP HVSET
 HVL:    CPX #LIST0      ; list row with an item: the row, or the clicked column of two
         BCC HVG
@@ -373,15 +384,23 @@ LB4:    INY             ; skip an interactive word
         BEQ LB0
         CMP #$5F
         BNE LB4
-LB1:    INY
+LB1:    LDA MENU,Y
+        CMP #$5F
+        BNE LB1A
+        LDA #COLLABEL
+        STA $DA30,Y     ; keep the prompt/choice separator cyan, not in the white cursor
+LB1A:   INY
         BNE LB0
 LB9:    RTS
 ; hover off: the cells get their colour back
 HVCLR:  LDX HOVR
         BEQ HV9
+        CPX #14
+        BEQ HVCLEAR
         LDA HOVC
         AND #$0F
         JSR HVPNT
+HVCLEAR:
         LDA #0
         STA HOVR
         RTS
@@ -533,8 +552,10 @@ MJOY:   LDA MENUON
 MJ0:    LDA $DC00
         STA TMP3
         LDX MOUSEON
-        BEQ MJ8
-        AND #1
+        BNE MJHAS
+        LDA TMP3
+        RTS
+MJHAS:  AND #1
         BNE MR0
         LDA RBTN
         BNE MR1
@@ -551,22 +572,33 @@ ML0:    LDA TMP3
         LDA BTN
         BNE MJ5
         INC BTN         ; press: remember the cell
-        LDA HOVR        ; use the menu word visibly highlighted before the press
+        LDA HOVR
         CMP #14
         BNE MJPOS
-        LDA HOVS
+        LDA CROW
+        CMP #14
+        BNE MJPOS
+        LDA HOVD2       ; PCOL stores the native cursor position for deferred activation
+        SEC
+        SBC #2
         BPL MJCOL
-MJPOS:  LDA CCOL
+MJPOS:  LDA CROW
+        CMP #14
+        BNE MJPC
+        LDA #$FF        ; row-14 text that is not a native menu choice
+        BNE MJCOL
+MJPC:   LDA CCOL
 MJCOL:
         STA PCOL
         LDA CROW
         STA PROW
         BNE MJ5
-MJREL:  LDA BTN
-        LDA CANCEL
+MJREL:  LDA CANCEL
         BEQ MJR0
         LDA #0
         STA CANCEL
+        STA BTN         ; cancelled/already-fired presses must not become a second click
+        JMP MJ5
 MJR0:   LDA BTN
         BEQ MJ5
         LDA #0
@@ -575,13 +607,97 @@ MJR0:   LDA BTN
         STA RROW
         LDA #1
         STA CLICK
-MJ5:    LDA $DC00
+MJ5:    LDA #0
+        STA MOLD        ; scratch: synthetic joystick direction (4 = left, 8 = right)
+        LDA MENUON
+        BEQ MJN0
+        LDA CLICK
+        BEQ MJNH
+        LDA PROW
+        CMP #14
+        BNE MJNH
+        LDA PCOL
+        CMP #$FF
+        BEQ MJN0
+        STA TMP2
+        JMP MJTE
+MJNH:   LDA HOVR
+        CMP #14
+        BNE MJN0
+        LDA HOVD2       ; $0774 stores the last choice character relative to column 1
+        SEC
+        SBC #2
+        STA TMP2
+MJTE:
+        LDA TMP3
+        AND #$0C
+        CMP #$0C        ; physical joystick direction takes precedence
+        BNE MJN0
+        LDA TMP2
+        CMP $0774       ; the game's native highlighted menu word
+        BEQ MJN0
+        LDA HOVE
+        EOR #1
+        STA HOVE
+        BEQ MJN1        ; release between presses without resetting the pulse phase
+        LDA TMP2
+        CMP $0774
+        BCC MJNL
+        LDA #8
+        BNE MJNS
+MJNL:   LDA #4
+MJNS:   STA MOLD
+        BNE MJN1
+MJN0:   LDA #0
+        STA HOVE
+MJN1:   LDA $DC00
         ORA #$11        ; the mouse's own lines are not a joystick
         LDX BTN         ; outside menus a held button is fire
-        BEQ MJ8
+        BEQ MJNPEND
         LDX MENUON
-        BNE MJ8
+        BEQ MJFIRE
+        LDA PROW
+        CMP #14
+        BNE MJNOFIRE
+        LDA HOVR
+        CMP #14
+        BNE MJNOFIRE
+        LDA TMP2
+        CMP $0774       ; fire only after the native highlight reaches the pointer
+        BNE MJNOFIRE
+        LDA #1
+        STA CANCEL      ; remember that the held menu click already fired
+MJFIRE: LDA $DC00
+        ORA #$11
         AND #$EF
+        JMP MJN2
+MJNPEND:
+        LDA CLICK
+        BEQ MJNOFIRE
+        LDA PROW
+        CMP #14
+        BNE MJNOFIRE
+        LDA PCOL
+        CMP #$FF
+        BEQ MJNOFIRE
+        LDA TMP2
+        CMP $0774
+        BNE MJNOFIRE
+        LDA #0
+        STA CLICK
+        JMP MJFIRE
+MJNOFIRE:
+        LDA $DC00
+        ORA #$11
+MJN2:   LDX MOLD
+        BNE MJD
+        JMP MJ8
+MJD:
+        CPX #8
+        BNE MJN3
+        AND #$F7        ; joystick right is active low on bit 3
+        JMP MJ8
+MJN3:   AND #$FB        ; joystick left is active low on bit 2
 MJ8:    RTS
 
 ; ---- menu loop: turn a click into a key or an action ----
@@ -598,11 +714,18 @@ MKEY:   LDA #6
         RTS
 MKBACK: LDA #$14
         JMP PUSHK
-MK0:    LSR CLICK
-        BCC MKX
+MK0:    LDA CLICK
+        BEQ MKX
         LDX PROW
         CPX #14
         BNE MKL
+        LDA PCOL
+        CMP #$FF
+        BEQ MKDROP
+        RTS             ; native menu click stays pending until MJOY fires the selected item
+MKDROP: LDA #0
+        STA CLICK
+        RTS
         LDX PCOL        ; menu row: the word's shortcut key
         LDA MENU,X
         CMP #$20
@@ -641,7 +764,9 @@ MK6:    LDX KCOUNT
         STA KQUEUE,X
         INC KCOUNT
 MKX:    RTS
-MKL:    CPX #LIST0
+MKL:    LSR CLICK
+        BCC MKX
+        CPX #LIST0
         BCC MKX
         JSR ITEM
         BEQ MKX         ; no item on this row

@@ -101,12 +101,19 @@ function untilAt(m, addr, max) {
 // Move the mouse until the pointer cell is at (row, col). The 1351 reports up as positive.
 function pointerTo(m, row, col) {
   for (let i = 0; i < 80 && m.ram[SYM.POINTERROW] !== row; i++) { m.moveMouse(0, m.ram[SYM.POINTERROW] > row ? 1 : -1); frames(m, 2); }
-  for (let i = 0; i < 80 && Math.abs(m.ram[SYM.POINTERCOL] - col) > 1; i++) { m.moveMouse(m.ram[SYM.POINTERCOL] > col ? -4 : 4, 0); frames(m, 1); }
+  for (let i = 0; i < 80 && m.ram[SYM.POINTERCOL] !== col; i++) { m.moveMouse(m.ram[SYM.POINTERCOL] > col ? -4 : 4, 0); frames(m, 1); }
   frames(m, 3);
 }
 function rowChar(m, row, col) { return m.ram[SYM.TEXTSCREEN + row * 40 + col]; }
 function findRowChar(m, row, code) {
   for (let col = 0; col < 40; col++) if (rowChar(m, row, col) === code) return col;
+  return -1;
+}
+function findRowRange(m, row, lo, hi) {
+  for (let col = 0; col < 40; col++) {
+    const c = rowChar(m, row, col);
+    if (c >= lo && c <= hi) return col;
+  }
   return -1;
 }
 function clickPointer(m, row, col, right = false) {
@@ -305,7 +312,7 @@ function playthrough(dma) {
   check(m.port1 === 0x35, label + 'KERNAL off during play ($01 = $' + hx(m.port1) + ')');
   check(sid.n > 60, label + 'the SID got ' + sid.n + ' writes by the bridge');
 
-  // mouse: detected, the pointer moves, a click on the menu row types the word's key
+  // mouse: detected, pointer movement and menu selection share the game's native cursor
   check(m.ram[SYM.MOUSEON] !== 0, label + 'the patch finds the 1351 in port 2 (MOUSEON=$' + hx(m.ram[SYM.MOUSEON]) + ')');
   const x0 = m.ram[SYM.MOUSEX], c0 = m.ram[SYM.POINTERCOL], r0 = m.ram[SYM.POINTERROW];
   for (let i = 0; i < 12; i++) { m.moveMouse(-5, 0); frames(m, 1); }
@@ -322,9 +329,11 @@ function playthrough(dma) {
   frames(m, 400);
   const after = snap(m, tag + '-8-departure');
   check(after.lit !== before.lit && m.ram[SYM.MOUSEMENUON] !== 0, label + 'a click began the mission: the menu row appears (' + before.lit + ' -> ' + after.lit + ' lit pixels)');
-  // click the word "Eng." on the menu row: its shortcut key goes into the key queue
+  // Hovering Eng. moves the game's native menu cursor before a click fires it.
   pointerTo(m, 14, 24);
   check(m.ram[SYM.POINTERROW] === 14 && m.ram[SYM.POINTERCOL] >= 23 && m.ram[SYM.POINTERCOL] <= 26, label + 'pointer on the word Eng. (row ' + m.ram[SYM.POINTERROW] + ', column ' + m.ram[SYM.POINTERCOL] + ')');
+  check(m.ram[0x0774] === m.ram[0x53F7] - 2 && m.colorRam[14 * 40 + 24] === 1,
+        label + 'mouse hover moves the single native highlight to Eng.');
   snap(m, tag + '-9-pointer-on-eng');
   m.mouse.left = true; frames(m, 8); m.mouse.left = false; frames(m, 100);
   snap(m, tag + '-10-engineering');
@@ -366,10 +375,37 @@ function playthrough(dma) {
     const dragColor = m.colorRam[dragRow * 40 + 3];
     pointerTo(m, dropRow, 2); const dropColor = m.colorRam[dropRow * 40 + 3];
     check(dragColor === 12 && dropColor === 7, label + 'held drag greys the source row and yellows the row under the pointer (title ' + String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 15 * 40, SYM.TEXTSCREEN + 15 * 40 + 20)) + '; pointer ' + m.ram[SYM.POINTERCOL] + ',' + m.ram[SYM.POINTERROW] + '; colours ' + dragColor + '/' + dropColor + ')');
-   m.mouse.left = false; frames(m, 80);
+    m.mouse.left = false; frames(m, 80);
     check(m.ram[SYM.CMDCMD] === 0x44 || m.ram[SYM.CMDCMD] === 0x52 || m.ram[SYM.CMDCMD] === 0x57, label + 'releasing a drag ranks and flashes the selected item (command $' + hx(m.ram[SYM.CMDCMD]) + ')');
-   snap(m, tag + '-13-drag');
-   return { m, sid, tag, label };
+    snap(m, tag + '-13-drag');
+    // Weapons / Fire: narrow numeric choices must hit their exact cells.
+    m.loadState(engineeringMenuState);
+    m.mouse.right = true; frames(m, 8); m.mouse.right = false; frames(m, 120);
+    const weaponsCol = findRowChar(m, 14, 0x57);
+    if (weaponsCol >= 0) clickPointer(m, 14, weaponsCol);
+    const fireCol = findRowChar(m, 14, 0x46);
+    if (fireCol >= 0) clickPointer(m, 14, fireCol);
+    const fireState = m.saveState();
+    for (const shots of [1, 2]) {
+      m.loadState(fireState);
+      const col = findRowChar(m, 14, 0x30 + shots);
+      if (col >= 0) clickPointer(m, 14, col);
+      check(col >= 0 && m.ram[SYM.CMDARG] === 0x30 + shots && findRowChar(m, 14, 0x4D) >= 0,
+            label + 'Weapons Fire shot count ' + shots + ' is clickable and advances to weapon selection');
+    }
+    m.loadState(fireState);
+    let col = findRowChar(m, 14, 0x31);
+    if (col >= 0) clickPointer(m, 14, col);
+    col = findRowChar(m, 14, 0x4D);
+    if (col >= 0) clickPointer(m, 14, col);
+    const targetCol = findRowRange(m, 14, 0x41, 0x5A);
+    if (targetCol >= 0) clickPointer(m, 14, targetCol);
+    const priorityCol = findRowChar(m, 14, 0x31);
+    const priorityMenu = String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 14 * 40, SYM.TEXTSCREEN + 15 * 40));
+    if (priorityCol >= 0) clickPointer(m, 14, priorityCol);
+    check(targetCol >= 0 && priorityCol >= 0 && m.ram[SYM.CMDPOS + 2] === 0x31,
+          label + 'Weapons Fire Priority 1 is clickable (menu "' + priorityMenu.trimEnd() + '")');
+    return { m, sid, tag, label };
 }
 
 function bridgeSmoke(dma) {
@@ -394,6 +430,48 @@ function bridgeSmoke(dma) {
 
 const bridgeGames = [false, true].map(bridgeSmoke);
 const games = [false, true].map(playthrough);
+
+function bridgePriorityRegression(m, dma) {
+  const label = (dma ? 'bridge m.dma' : 'bridge page speed') + ': ';
+  clickPointer(m, 14, 39, true);
+  const weaponsCol = findRowChar(m, 14, 0x57);
+  if (weaponsCol >= 0) clickPointer(m, 14, weaponsCol);
+  const fireCol = findRowChar(m, 14, 0x46);
+  if (fireCol >= 0) clickPointer(m, 14, fireCol);
+  let col = findRowChar(m, 14, 0x31);
+  if (col >= 0) clickPointer(m, 14, col);
+  col = findRowChar(m, 14, 0x4D);
+  if (col >= 0) clickPointer(m, 14, col);
+  const targetCol = findRowRange(m, 14, 0x41, 0x5A);
+  if (targetCol >= 0) clickPointer(m, 14, targetCol);
+  const priorityCol = findRowChar(m, 14, 0x31);
+  const priorityLabelCol = findRowChar(m, 14, 0x70);
+  if (priorityLabelCol >= 0) pointerTo(m, 14, priorityLabelCol);
+  const labelHoverColor = priorityLabelCol < 0 ? -1 : m.colorRam[14 * 40 + priorityLabelCol];
+  const selectionBeforeLabelClick = m.ram[0x0774];
+  const priorityBeforeLabelClick = m.ram[SYM.CMDPOS + 2];
+  if (priorityLabelCol >= 0) clickPointer(m, 14, priorityLabelCol);
+  const labelIgnored = findRowChar(m, 14, 0x31) >= 0 && m.ram[SYM.CMDPOS + 2] === priorityBeforeLabelClick;
+  check(priorityLabelCol >= 0 && labelHoverColor === 3 && labelIgnored && m.ram[0x0774] === selectionBeforeLabelClick,
+        label + 'Priority prompt label stays cyan and does not move or fire the native selection');
+  if (priorityCol >= 0) pointerTo(m, 14, priorityCol);
+  const choiceColor = priorityCol < 0 ? -1 : m.colorRam[14 * 40 + priorityCol];
+  const labelColor = priorityLabelCol < 0 ? -1 : m.colorRam[14 * 40 + priorityLabelCol];
+  const separatorColor = priorityCol <= 0 ? -1 : m.colorRam[14 * 40 + priorityCol - 1];
+  const nativeChoice = priorityCol >= 0 && m.ram[0x0774] === m.ram[0x53F7] - 2;
+  check(priorityCol >= 0 && priorityLabelCol >= 0 && nativeChoice && choiceColor === 1 && labelColor === 3 && separatorColor === 3,
+        label + 'only Priority 1 is the native white highlight; label/separator stay cyan (' + labelColor + '/' + separatorColor + '/' + choiceColor + ')');
+  if (priorityCol >= 0) {
+    m.mouse.left = true;
+    frames(m, 4);
+  }
+  const heldLabelColor = priorityLabelCol < 0 ? -1 : m.colorRam[14 * 40 + priorityLabelCol];
+  m.mouse.left = false;
+  frames(m, 120);
+  check(targetCol >= 0 && heldLabelColor === 3 && m.ram[SYM.CMDPOS + 2] === 0x31,
+        label + 'default HTML cartridge accepts Priority 1 without flashing its label white');
+}
+bridgeGames.forEach((m, i) => bridgePriorityRegression(m, !!i));
 
 function joystickRegression(m, label) {
   for (const present of [true, false]) {
