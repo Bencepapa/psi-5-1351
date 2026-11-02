@@ -12,7 +12,9 @@ ROOT = os.path.dirname(HERE)
 TOOLS = os.path.join(ROOT, 'tools')
 PRGS = os.path.join(ROOT, 'plus4d')
 sys.path.insert(0, r'C:\dev\c64\mousegui\tools')
+sys.path.insert(0, os.path.join(ROOT, 'ef'))
 from asm6502 import assemble
+from message_codec import patch_messages, patch_decoder, DISPATCH, DICT_OFFSETS, DICT_DATA, ESCAPE
 
 VERSION = sys.argv[1] if len(sys.argv) > 1 else '1'
 SRC_D64 = os.path.join(ROOT, 'PSI-5 +4D 101% ATA.d64')
@@ -43,26 +45,46 @@ def main():
     assert sym['CODEEND'] <= 0x30A1, 'main code past $30A0'
     assert sym['HELPEND'] <= 0xCBE4, 'helpers past $CBE3'
 
-    files = {n: unpack(n) for n in ('mx', 'di', 'c')}
+    # Never put code directly in di/c: their runtime overlays overwrite it.
+    files = {n: unpack(n) for n in ('mx', 'ma', 'de')}
 
     def put(addr, bs, expect=None):
         for n, (start, data) in files.items():
             if start <= addr and addr + len(bs) <= start + len(data):
                 i = addr - start
                 if expect is not None:
-                    got = bytes(data[i:i + len(expect)])
-                    assert got == bytes(expect), f'{n} ${addr:04X}: expected {bytes(expect).hex()}, found {got.hex()}'
+                    ncheck = 1 if expect == 'blank' else len(expect)
+                    got = bytes(data[i:i + ncheck])
+                    if expect == 'blank':
+                        assert got[0] in (0x00, 0x20), f'{n} ${addr:04X}: expected blank, found {got.hex()}'
+                    else:
+                        assert got == bytes(expect), f'{n} ${addr:04X}: expected {bytes(expect).hex()}, found {got.hex()}'
                 data[i:i + len(bs)] = bs
                 return n
         raise SystemExit(f'${addr:04X} is in none of the files')
 
-    for a in sorted(out):
-        put(a, bytes([out[a]]), [0x20] if a < 0x4000 else [0x00])   # free areas: spaces / zeros
+    image = bytes(out[a] for a in range(0x2F60, sym['CODEEND']))
+    helpers = bytes(out[a] for a in range(0xCBCC, sym['HELPEND']))
+    assert len(image) == 317 and len(helpers) == 17
+    prefix = (f'DISPATCH = ${DISPATCH:04X}\nDICTOFF = ${DICT_OFFSETS:04X}\n'
+              f'DICTDATA = ${DICT_DATA:04X}\nESCAPE = ${ESCAPE:02X}\n')
+    decoder, dsym, _ = assemble(prefix + open(os.path.join(ROOT, 'ef', 'message_dispatch.asm'), encoding='utf8').read())
+    dispatch = bytes(decoder[a] for a in range(DISPATCH, dsym['MEND']))
+    assert len(dispatch) == 72
+    start, data = files['de']
+    assert patch_messages(data, start, image[:240], dispatch) == 101
+    put(0xF3B0, image[240:], bytes(77))
+    put(0xF3FD, helpers, bytes(17))
+    install_prefix = ''.join(f'{k} = ${sym[k]:04X}\n' for k in ('MPRE', 'MJOY', 'MPOST', 'MKEY'))
+    installer, isym, _ = assemble(install_prefix + open(os.path.join(HERE, 'install.asm'), encoding='utf8').read())
+    assert isym['INSTALLEND'] <= 0xFBC4
+    assert isym['ACTIVATEEND'] <= 0xF8D7
+    for a, v in installer.items():
+        put(a, bytes([v]), [0])
+    start, data = files['ma']
+    patch_decoder(data, start)
     jsr = lambda t: bytes([0x20, t & 255, t >> 8])
-    put(0x8F2D, jsr(sym['MPRE']), [0x20, 0xA5, 0x8F])
-    put(0x8FB1, jsr(sym['MJOY']), [0xAD, 0x00, 0xDC])
-    put(0x9005, jsr(sym['MPOST']), [0x20, 0x72, 0x3E])
-    put(0x8609, jsr(sym['MKEY']), [0x20, 0xE9, 0x3E])
+    put(0x8258, jsr(isym['INSTALL']), [0x20, 0x00, 0xC9])
 
     shutil.copy(SRC_D64, OUT_D64)
     subprocess.run([C1541, '-attach', OUT_D64, '-delete', 'psi-5 docs  /ata'], capture_output=True)
