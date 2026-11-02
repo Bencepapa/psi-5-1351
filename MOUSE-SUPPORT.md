@@ -11,7 +11,7 @@ Build: `python ef/efbuild.py`. Run: `x64sc -cartcrt psi5_ef.crt -controlport2dev
 
 | Input | Effect |
 |---|---|
-| Moving the mouse | A pointer sprite (sprite 7) on text rows 13-24. Sprite 7 is multiplexed: the ships use it above the split, the pointer below. |
+| Moving the mouse on the bridge | A pointer sprite (sprite 7) on text rows 13-24. Sprite 7 is multiplexed: the ships use it above the split, the pointer below. |
 | Click a word on the menu row | Types its shortcut key: departments, Status, Display, `?`, Cancel, Rank, letters, numbers and the back arrow |
 | Engineering **Status**: click a device row | Enables or cancels the device (`$95AC`), so it shows RqE/RqC like the menu does |
 | Engineering **Display**, Weapons firing orders, Repair fix-it, Scan detailed examination: drag a row to another row | Ranks the item at the new position (`$8AE7`) |
@@ -24,6 +24,17 @@ Build: `python ef/efbuild.py`. Run: `x64sc -cartcrt psi5_ef.crt -controlport2dev
 | Joystick, keyboard | Work as before |
 
 **How it fits:**
+
+The full cartridge also supports the selection screens: hover and click any course or candidate
+portrait, then Welcome/Exit in a personnel file and Accept/Reselect on the crew summary.
+The prompts use "Use mouse/joy to select". These screens use fixed native geometry rather
+than scanning text. Joystick directions or keyboard input take control until the mouse moves again.
+The original joystick read at `$1EAD` calls `TJOY`; IRQ vector `$1EEB` dispatches to
+`ef/mouse_front.asm`. Sprite 7 covers the full screen here. Its data lives at `$FFC0`
+for courses, `$0400` for the candidate grid/summary, and temporarily at `$7FC0` for
+personnel files. Borrowed portrait-source bytes are restored before the next native input
+transition; the blank `$0400` block is restored before leaving the final summary.
+
 - The cartridge replaces the Krill disk loader; the mouse RAM part occupies `$0210-$02FF`.
 - `$0334-$03F2` can't be used: file loads overwrite it (`dp` loads at `$0374`).
 - These hold small trampolines: they map the mouse code's ROM bank (bank 1, 8K mode, `$01=$37`), call it, and switch the cartridge off again.

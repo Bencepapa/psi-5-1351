@@ -17,10 +17,12 @@ The mouse is in port 2; press `Alt+Q` to grab the mouse.
 
 ## Mouse controls
 
+- Click a course or candidate portrait; in personnel files click Welcome or Exit.
+- On the crew summary, click Accept or Reselect. Joystick and keyboard selection still work.
 - Move the pointer; the item under it is highlighted white.
 - Click menus and list items.
 - Drag an item to rank it in priority lists.
-- Use the right button to go back; during a drag it cancels the drag.
+- On the bridge, use the right button to go back; during a drag it cancels the drag.
 
 ## Build notes
 

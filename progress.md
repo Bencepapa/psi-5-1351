@@ -1,5 +1,18 @@
 # Psi-5 UI debugging handoff
 
+## Course / crew mouse support (2026-11-02, working tree)
+
+- User verified the portrait-colour fix and approved committing, merging to `main`, and pushing all changes on 2026-11-03. This section describes the completed implementation; earlier uncommitted-state notes below record its development.
+- Follow-up portrait-colour fix: mouse hover now restores the previous frame with native white (`1`), rather than `$0800`'s department colour. The new selection is left to the original loop's white/department-colour flashing. Both timing modes pass all six hover targets in all five departments, plus observed two-colour flashing for each department. Log: `js/test/out/frontend-colour.log`. Rebuilt both CRTs and HTML distributions; still uncommitted.
+- Previous verified checkpoint `f292125` was fast-forwarded to `main` and pushed to `origin/main` with user approval. GitHub Pages reported a successful build. New work below remains uncommitted on `crash_fix_attempt`.
+- Added `ef/mouse_front.asm`, dispatched through the original `$1EAD` joystick read when the native IRQ vector is `$1EEB`. Uses fixed course/portrait/button rectangles and native selection variables; no screen-text recognition or new resident RAM. Keyboard/joystick take precedence until the mouse moves again.
+- Course hover/click selects any of four routes. All six portraits open their personnel files; Welcome hires and Exit returns. Final Accept/Reselect are clickable. Blank areas suppress mouse fire, and held Accept cannot leak into the bridge's mission-start prompt.
+- Front-end pointer uses sprite 7 across the whole screen. Course data is under KERNAL at `$FFC0`; candidate/summary data uses blank `$0400`; personnel data temporarily borrows `$7FC0`. Original portrait bytes are restored before native transitions and the blank block is restored on final exit.
+- Prompts read `Use mouse/joy to select a course.` and `Use mouse/joy to select candidate.` with `Click or fire to see personnel file.` The builder renders the bitmap footer from the original font offline.
+- Browser default now embeds the full cartridge so course/crew selection is accessible. Both full and bridge cartridge downloads are rebuilt; distributed copies match their root builds by SHA-256.
+- Regression coverage includes every course/portrait, personnel exits and portrait-source restoration, all five hires, final Accept/Reselect, blank-area clicks, mouse movement, joystick takeover, no-mouse controls, and completion before the next music IRQ in both JS timing modes. Agent has not tested this new feature in VICE.
+- Final full suite passed: `js/test/out/frontend-final.log`, both timing modes. Front-end polling measured 2599/2595 calls, maximum 2949/2974 cycles, zero late music IRQ updates. Bridge visuals measured 5702/5648 updates, maximum 3349 cycles, zero late split updates. All 5 D64 reader tests pass; source/document whitespace checks pass (generated HTML retains the existing CRLF convention).
+
 ## Verified Navigation / Quit fixes after d19f9e5 (2026-11-02)
 
 - The direct-selection / priority-label fixes were committed first as requested: `d19f9e5 Select mouse menu targets directly and prevent priority label flashes`.

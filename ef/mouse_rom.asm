@@ -1,5 +1,6 @@
 ; Psi-5 EasyFlash: mouse support, ROM part (own bank, ROML at $8000, called via mouse_ram.asm).
-; Only touches I/O, RAM below $8000 and the RAM part's variables.
+; Bridge code touches I/O, RAM below $8000 and the RAM part's variables.
+; The front-end extension also stores its course pointer in RAM under KERNAL.
 ; Pointer: sprite 7 in the text rows, multiplexed by the RAM part (the ships use it above the
 ; split). Mouse in port 2.
 ; - menu-row hover sets the native cursor and command ordinal directly; click fires that choice
@@ -610,7 +611,14 @@ MT8:    LDA #0
         RTS
 
 ; ---- joystick read (DDR A = 0): mouse buttons -> click events; returns the joystick byte ----
-MJOY:   LDA MENUON
+MJOY:   LDA $0315
+        CMP #$1E
+        BNE MJBRIDGE
+        LDA $0314
+        CMP #$EB
+        BNE MJBRIDGE
+        JMP FJOY
+MJBRIDGE:LDA MENUON
         BEQ MJ0
         DEC MENUON
 MJ0:    LDA $DC00

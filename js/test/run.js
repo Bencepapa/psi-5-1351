@@ -133,6 +133,36 @@ function clickPointer(m, row, col, right = false) {
   if (right) m.mouse.right = false; else m.mouse.left = false;
   frames(m, 120);
 }
+function frontPoint(m, row, col) {
+  m.ram[SYM.MOUSEX] = col * 4 + 1;
+  m.ram[SYM.MOUSEY] = row * 8 + 4;
+  m.moveMouse(1, 0); // activate actual pot-driven mouse targeting
+  frames(m, 3);
+}
+function frontClick(m, row, col, settle = 120) {
+  frontPoint(m, row, col);
+  m.mouse.left = true; frames(m, 4); m.mouse.left = false; frames(m, settle);
+}
+function frontInputTiming(m) {
+  const rom = m.cart.banks[1].lo;
+  const joy = (rom[4] | rom[5] << 8) - 0x8000;
+  if (rom[joy + 14] !== 0x4C) throw new Error('front-end dispatch not found');
+  const entry = rom[joy + 15] | rom[joy + 16] << 8;
+  const result = { count: 0, max: 0, late: 0 };
+  let start = null;
+  const step = m.cpu.step;
+  m.cpu.step = function () {
+    if (this.pc === entry && m.cartMode && m.efBank === 1) start = { clock: m.now(), raster: m.cycleInFrame() };
+    if (this.pc === 0x1EB0 && !m.cartMode && start) {
+      const elapsed = m.now() - start.clock;
+      result.count++; result.max = Math.max(result.max, elapsed);
+      if (elapsed >= 344 * 63 - start.raster) result.late++;
+      start = null;
+    }
+    return step.call(this);
+  };
+  return result;
+}
 function guardedFrames(m, n, label) {
   const bad = [SYM.RESTART, SYM.TRAINERPROMPT, SYM.TITLEWAIT, 0x3CA7];
   bad.forEach(a => m.setBreak(a, true));
@@ -335,7 +365,7 @@ function playthrough(dma) {
   check(sid.n > 20 && sid.gates >= 1 && m.sid[0x18] === 0x0F, label + 'music reaches the SID: ' + sid.n + ' writes to registers ' + [...sid.regs].sort((a, b) => a - b).join(',') + ', volume $' + hx(m.sid[0x18]));
 
   m.joy2 = 16; frames(m, 5); m.joy2 = 0;
-  check(until(m, 0x5F90, 0x5FA0, 1500), label + 'fire at the title: the course list waits for a key (PC $' + hx(m.cpu.pc) + ', frame ' + m.frame + ')');
+  check(untilAt(m, 0x1EAD, 1500), label + 'fire at the title: the course list waits for input (PC $' + hx(m.cpu.pc) + ', frame ' + m.frame + ')');
   frames(m, 20);
   s = snap(m, tag + '-3-courses');
   check(s.lit > 8000 && s.colors >= 4, label + 'course list drawn (' + s.lit + ' lit pixels)');
@@ -632,6 +662,126 @@ function playthrough(dma) {
     return { m, sid, tag, label };
 }
 
+function frontendMouseRegression(dma) {
+  const label = 'front ' + (dma ? 'DMA' : 'page speed') + ': ';
+  const tag = dma ? 'front-dma' : 'front-plain';
+  const m = boot(dma, 'full'), timing = frontInputTiming(m);
+  until(m, 0xCA0, 0xCC0, 600); frames(m, 20);
+  tap(m, 'KeyN', 4, 20); until(m, 0x04B1, 0x04B8, 800);
+  m.joy2 = 16; frames(m, 5); m.joy2 = 0;
+  check(untilAt(m, 0x1EAD, 1500), label + 'course selector reaches the mouse-enabled input read');
+  frames(m, 20);
+  const courseState = m.saveState();
+  check(m.ram[SYM.MOUSEON] !== 0 && (m.vic[0x15] & 0x80) &&
+        String.fromCharCode(...m.ram.slice(0xFA58, 0xFA80)).includes('Use mouse/joy to select a course.'),
+        label + 'course screen has a hardware pointer and mouse/joy prompt');
+  const x0 = m.ram[SYM.MOUSEX], y0 = m.ram[SYM.MOUSEY];
+  m.moveMouse(12, -8); frames(m, 3);
+  check(m.ram[SYM.MOUSEX] > x0 && m.ram[SYM.MOUSEY] > y0, label + 'pot movement controls the full-screen pointer');
+  m.loadState(courseState);
+  frontClick(m, 17, 10, 30);
+  check((m.cia2.pra & 3) === 0, label + 'clicking outside the course rows does not choose a route');
+  for (let course = 0; course < 4; course++) {
+    m.loadState(courseState);
+    frontPoint(m, 18 + 2 * course, 10);
+    check(m.ram[7] === course, label + 'hover selects course ' + (course + 1));
+    m.mouse.left = true; frames(m, 4); m.mouse.left = false; frames(m, 150);
+    check((m.cia2.pra & 3) === 3 && m.ram[0x17] === 0 && m.ram[7] === course,
+          label + 'click preserves course ' + (course + 1) + ' and opens the crew grid');
+  }
+  m.loadState(courseState);
+  frontPoint(m, 24, 10); snap(m, tag + '-course');
+  frontClick(m, 18, 10, 150);
+  const crewState = m.saveState();
+  const art = Array.from(m.ram.slice(0x7FC0, 0x7FFF));
+  for (let candidate = 0; candidate < 6; candidate++) {
+    m.loadState(crewState);
+    frontPoint(m, candidate < 3 ? 6 : 16, 7 + candidate % 3 * 12);
+    check(m.ram[0x19] === candidate * 2, label + 'hover selects portrait ' + (candidate + 1));
+    m.mouse.left = true; frames(m, 4); m.mouse.left = false; frames(m, 100);
+    check((m.cia2.pra & 3) === 2 && m.ram[0x19] === candidate * 2 && m.ram[0x63FF] === 0xFF,
+          label + 'click opens the correct personnel file with a pointer');
+    if (candidate === 2) {
+      snap(m, tag + '-personnel');
+      frontClick(m, 16, 20, 30);
+      check((m.cia2.pra & 3) === 2 && m.ram[0x17] === 0,
+            label + 'personnel page clicks outside Welcome/Exit do not hire');
+    }
+    frontClick(m, 24, 35, 100);
+    check((m.cia2.pra & 3) === 3 && art.every((v, i) => m.ram[0x7FC0 + i] === v),
+          label + 'Exit returns to the grid and restores borrowed portrait data');
+  }
+  m.loadState(crewState);
+  frontPoint(m, 16, 31); snap(m, tag + '-candidates');
+  frontPoint(m, 12, 25);
+  m.mouse.left = true; frames(m, 4); m.mouse.left = false; frames(m, 30);
+  check((m.cia2.pra & 3) === 3, label + 'clicking between portraits does not open a file');
+  m.loadState(crewState);
+  frontPoint(m, 6, 7);
+  m.joy2 = 8; frames(m, 4); m.joy2 = 0; frames(m, 8);
+  check(m.ram[0x19] === 2 && m.ram[SYM.MOUSEMENUON] === 0,
+        label + 'joystick takes precedence over a stationary mouse');
+  m.moveMouse(8, 0); frames(m, 3);
+  check(m.ram[0x19] === 0, label + 'moving the mouse resumes portrait targeting');
+  m.loadState(crewState);
+  m.mouse.present = false; frames(m, 4);
+  const initial = m.ram[0x19];
+  m.joy2 = 8; frames(m, 4); m.joy2 = 0; frames(m, 4);
+  const right = (initial + 2) % 12;
+  check(m.ram[0x19] === right && !(m.vic[0x15] & 0x80), label + 'joystick selects portraits without a mouse');
+  m.joy2 = 1; frames(m, 4); m.joy2 = 0; frames(m, 4);
+  const up = right >= 6 ? right - 6 : right;
+  check(m.ram[0x19] === up, label + 'joystick vertical selection remains intact');
+  m.joy2 = 16; frames(m, 4); m.joy2 = 0; frames(m, 100);
+  check((m.cia2.pra & 3) === 2, label + 'joystick fire still opens the selected personnel file');
+  m.loadState(crewState);
+  for (let dept = 0; dept < 5; dept++) {
+    const border = candidate => m.ram[0x1F7B + candidate * 2] | (m.ram[0x1F7C + candidate * 2] << 8);
+    for (let candidate = 0; candidate < 6; candidate++) {
+      frontPoint(m, candidate < 3 ? 6 : 16, 7 + candidate % 3 * 12);
+      frames(m, 5);
+      check(Array.from({length: 6}, (_, i) => i).filter(i => i !== candidate).every(i =>
+        Array.from({length: 9}, (_, col) => m.ram[border(i) + col + 1]).every(v => v === 1)),
+        label + 'department ' + (dept + 1) + ' hover ' + (candidate + 1) + ' leaves all other portrait frames white');
+    }
+    const selectedColours = new Set();
+    for (let frame = 0; frame < 40; frame++) {
+      frames(m, 1);
+      selectedColours.add(m.ram[border(5) + 1]);
+    }
+    check(selectedColours.size === 2 && selectedColours.has(1) && selectedColours.has(m.ram[0x0800]),
+      label + 'department ' + (dept + 1) + ' selected portrait keeps native white/department-colour flashing');
+    if (dept === 2) snap(m, tag + '-scanning-borders');
+    frontClick(m, dept < 3 ? 6 : 16, 7 + dept % 3 * 12, 100);
+    frontClick(m, 24, 10, 120);
+    check(m.ram[2 + dept] === dept && m.ram[0x17] === (dept + 1) * 2,
+          label + 'Welcome hires the chosen candidate for department ' + (dept + 1));
+  }
+  const finalState = m.saveState();
+  frontPoint(m, 1, 30);
+  check(m.ram[0x1B] === 5, label + 'mouse targets Reselect crew');
+  m.mouse.left = true; frames(m, 4); m.mouse.left = false; frames(m, 100);
+  check((m.cia2.pra & 3) === 0, label + 'Reselect returns to course/crew selection');
+  m.loadState(finalState);
+  frontPoint(m, 1, 8); snap(m, tag + '-final-crew');
+  check(m.ram[0x1B] === 0x15, label + 'mouse targets Accept final crew');
+  m.mouse.left = true; frames(m, 4);
+  check(untilAt(m, SYM.GETKEY, 4000), label + 'mouse-only selection reaches the bridge');
+  frames(m, 50);
+  check(m.ram[SYM.MOUSEBTN] === 0 && m.ram[0x2A9] === 1 && m.ram[SYM.CMDDEPT] === 0,
+        label + 'held Accept click does not leak into the mission');
+  m.mouse.left = false; frames(m, 20);
+  check(m.ram[0x2A9] === 0, label + 'releasing Accept re-arms mouse input');
+  m.mouse.left = true; frames(m, 8); m.mouse.left = false; frames(m, 400);
+  check(findRowChar(m, 14, 0x45) >= 0, label + 'a fresh click begins the mission');
+  clickPointer(m, 14, 39, true); // leave any initial acknowledgement submenu
+  clickPointer(m, 14, findRowChar(m, 14, 0x45));
+  const engMenu = String.fromCharCode(...m.ram.slice(0x5230, 0x5258));
+  check(m.ram[SYM.DEPTLETTER] === 0x45, label + 'bridge mouse menus work after full mouse crew selection (dept ' + m.ram[SYM.DEPTLETTER] + '; menu ' + engMenu + ')');
+  check(timing.count > 0 && timing.late === 0,
+        label + 'front-end mouse polling stays before the music IRQ (' + timing.count + ' calls, max ' + timing.max + ' cycles, late ' + timing.late + ')');
+}
+
 function bridgeSmoke(dma) {
   const label = (dma ? 'bridge m.dma' : 'bridge page speed') + ': ';
   const m = boot(dma, 'bridge');
@@ -653,6 +803,7 @@ function bridgeSmoke(dma) {
 }
 
 const bridgeGames = [false, true].map(bridgeSmoke);
+for (const dma of [false, true]) frontendMouseRegression(dma);
 const games = [false, true].map(playthrough);
 
 function bridgePriorityRegression(m, dma) {

@@ -1,9 +1,9 @@
 # Psi-5 Trading Company JS
 
 The Avatar +4D 101% release of Psi-5 Trading Company, as EasyFlash cartridges with 1351 mouse
-support, running unchanged on a JS 6502 core with a debugger. The browser defaults to
-`ref/psi5_ef_bridge_tested.crt` and starts directly on the bridge. The full game is
-`ref/psi5_ef_tested.crt` and is used by the trainer-to-bridge playthrough.
+support, running on a JS 6502 core with a debugger. The browser defaults to the full
+`ref/psi5_ef_tested.crt`, including course and crew selection. The optional
+`ref/psi5_ef_bridge_tested.crt` starts directly on the bridge.
 
 `dist/psi5.html` is one self-contained file (it opens directly, and links the cartridge for download).
 `index.html` loads `src/*.js` and needs a server: `python -m http.server` in `js/`.
@@ -27,7 +27,7 @@ support, running unchanged on a JS 6502 core with a debugger. The browser defaul
 ## Build and test
 
 ```text
-python js/build.py          # embeds the bridge ref by default; a .crt argument selects another cartridge
+python js/build.py          # embeds the full game; a .crt argument selects another cartridge
 python js/bundle.py         # js/index.html and js/dist/psi5.html
 node js/test/run.js         # headless checks, PNG snapshots in js/test/out
 ```
@@ -37,6 +37,8 @@ The generated download name comes from the selected cartridge filename. Mouse la
 
 ## What the tests cover
 
+- all four course choices, all six portraits and personnel-file exits, hiring all five departments,
+  final Accept/Reselect, blank-area clicks, joystick takeover, sprite-data restoration and input timing
 - the CRT, EasyFlash banking and modes, the reset vector, the KERNAL stand-in, CIA timers and
   interrupts, the TOD alarm, the undocumented opcodes
 - both cartridges at page speed and with `m.dma = true`: bridge boot/getkey, CIA2 TOD alarm and

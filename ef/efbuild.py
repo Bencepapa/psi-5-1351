@@ -32,6 +32,20 @@ def asm_file(fn, prefix='', suffix=''):
     return out, sym
 
 
+def file_image(prg, raw=False):
+    load = int.from_bytes(prg[:2], 'little')
+    packed = prg[2:]
+    if raw:
+        return load, bytes(packed)
+    _, dest, unpacked, _ = decode(prg)
+    start = min(load, dest)
+    end = max(load + len(packed), dest + len(unpacked))
+    mem = bytearray(end - start)
+    mem[load - start:load - start + len(packed)] = packed
+    mem[dest - start:dest - start + len(unpacked)] = unpacked
+    return start, bytes(mem)
+
+
 # ---- resident code ($DF00) ----
 res_out, res_sym = asm_file('ef_res.asm')
 res = bytearray(res_out.get(a, 0) for a in range(0xDF00, 0xE000))
@@ -65,6 +79,12 @@ vic[0x11] &= 0x7F       # the read value's bit 7 is the current raster line, not
 RASTER = {0x8F33: 0x2D, 0x8ECE: 0x9A, 0x8F02: 0xAA}.get(img[0x0314] | img[0x0315] << 8, 0x99)
 
 # ---- mouse support: RAM part at $0210 in the image, ROM part in bank 1 ----
+disk = open(D64, 'rb').read()
+front_entry = next(entry for entry in prg_entries(disk) if entry[0] == 'accolade inc')
+front_start, front_data = file_image(read_file(disk, *front_entry[1:]))
+front_art = front_data[0x7FC0 - front_start:0x7FFF - front_start]
+assert len(front_art) == 63
+assert open(os.path.join(ROOT, 'tools', 'snap_ram.bin'), 'rb').read()[0x402:0x442] == b' ' * 64
 MOUSE = True
 PTRCOL = 1      # pointer colour (outline: black)
 mouse_bank = None
@@ -86,9 +106,12 @@ if MOUSE:
                                              for i, v in sorted(enumerate(data), key=lambda p: (p[0] % 8, p[0]))) + '        RTS' + chr(10)
     SIG = next(i for i, v in enumerate(art) if v not in (0, 255))
     rom_extra = chr(10) + unrolled('SHPUT', shape) + unrolled('SHRST', art)
+    rom_extra += chr(10) + open(os.path.join(HERE, 'mouse_front.asm'), encoding='utf8').read()
+    rom_extra += chr(10) + 'FARTDATA: .byte ' + ','.join(f'${b:02X}' for b in front_art) + chr(10)
     rom_out, _ = asm_file('mouse_rom.asm', f'SHSIGA = ${ARTAD + SIG:04X}{chr(10)}SHSIG = ${art[SIG]:02X}{chr(10)}SHBLOCK = ${(ARTAD - 0x4000) // 64:02X}{chr(10)}' + ''.join(f'{k} = ${v:04X}' + chr(10) for k, v in ram_sym.items()
                                                     if k.isupper() and not k.startswith('TK')
                                                     and k not in ('MPRE', 'MJOY', 'MKEY', 'MSPR', 'MTOP', 'MXOR', 'MREST')), rom_extra)
+    assert max(rom_out) < 0xA000, 'mouse ROM part exceeds its 8K bank'
     mouse_rom = bytes(rom_out.get(a, 0) for a in range(0x8000, 0xA000))
     STA15 = bytes([0x8D, 0x15, 0xD0])
     HOOKS = {0x8F2D: (bytes([0x20, 0xA5, 0x8F]), ram_sym['TPRE']), 0x8FB1: (bytes([0xAD, 0x00, 0xDC]), ram_sym['TJOY']),
@@ -168,22 +191,27 @@ fixseg = rec(p1 + 0x1000 - 0x0200, 0x1000, 0x1000)
 colseg = rec(p4, 0xD800, 0x0400)
 
 # files: the bytes each load leaves in memory (raw load at L, then unpacked at P)
-disk = open(D64, 'rb').read()
 directory = bytearray()
 for nm, track, sector in prg_entries(disk):
     if 'docs' in nm or nm.startswith('psi-5 '):
         continue
     prg = read_file(disk, track, sector)
-    L, s = prg[0] | prg[1] << 8, prg[2:]
-    if nm == 'dp':
-        start, data = L, bytes(s)
-    else:
-        _, P, unpacked, _ = decode(prg)
-        start = min(L, P)
-        end = max(L + len(s), P + len(unpacked))
-        mem = bytearray(end - start)
-        mem[L - start:L - start + len(s)] = s
-        mem[P - start:P - start + len(unpacked)] = unpacked
+    start, data = file_image(prg, raw=nm == 'dp')
+    if MOUSE and nm == 'accolade inc':
+        mem = bytearray(data)
+        offset = 0x1EAD - start
+        assert mem[offset:offset + 3] == bytes([0xAD, 0, 0xDC]), 'front-end joystick read changed'
+        mem[offset:offset + 3] = bytes([0x20, ram_sym['TJOY'] & 255, ram_sym['TJOY'] >> 8])
+        prompt = b'Use mouse/joy to select a course.'.ljust(40)
+        assert mem[0x0E58 - start:0x0E80 - start] == b' ' * 40
+        mem[0x0E58 - start:0x0E80 - start] = prompt
+        lines = ['Use mouse/joy to select candidate.', 'Click or fire to see personnel file.']
+        for row, line in enumerate(lines, 23):
+            assert len(line) <= 40
+            for column, char in enumerate(line.ljust(40)):
+                glyph = 0x1000 - start + (ord(char) - 32) * 8
+                dest = 0x2000 - start + row * 320 + column * 8
+                mem[dest:dest + 8] = front_data[glyph:glyph + 8]
         data = bytes(mem)
     if MOUSE:
         mem = bytearray(data)

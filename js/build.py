@@ -27,8 +27,8 @@ def symbols():
 
 
 def main():
-    # python js/build.py [cartridge.crt]. The browser starts on the bridge build.
-    crt_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'ref', 'psi5_ef_bridge_tested.crt')
+    # python js/build.py [cartridge.crt]. Include course and crew selection by default.
+    crt_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'ref', 'psi5_ef_tested.crt')
     with open(crt_path, 'rb') as f:
         crt = f.read()
     out = {'psi5': {
