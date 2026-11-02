@@ -5,7 +5,7 @@
 //   watches: {name, at, size (bytes, default 1), fmt: 'dec' | 'hex' | 'bytes'}
 //   cheats:  {id, name, help, freeze: [{at, size, value}]}   value omitted = keep current
 //            {id, name, help, skip: 'LABEL'}                  the routine returns at once
-//   events:  {name, at: 'LABEL', pause: bool}                 log (and pause) when entered
+//   events:  {name, at: 'LABEL', pause: bool, ramOnly?: bool} log (and pause) when entered
 //   keys:    on-screen buttons: {label, mouse: 'left'|'right'|'both'} or {label, key: 'Space'}
 'use strict';
 
@@ -29,12 +29,12 @@ var SentinelProfiles = {
     events: [
       { name: 'File load (cartridge)', at: 'EFCDLD' },
       { name: 'Raw load (cartridge)', at: 'EFRAWLD' },
-      { name: 'Status', at: 'H_STATUS' },
-      { name: 'Display', at: 'H_DISPLAY' },
-      { name: 'Rank', at: 'H_RANK' },
-      { name: 'Cancel', at: 'H_CANCEL' },
-      { name: 'Enable / cancel a device', at: 'SETDEVICE' },
-      { name: 'QUIT (loads from disk)', at: 'RESTART', pause: true },
+      { name: 'Status', at: 'H_STATUS', ramOnly: true },
+      { name: 'Display', at: 'H_DISPLAY', ramOnly: true },
+      { name: 'Rank', at: 'H_RANK', ramOnly: true },
+      { name: 'Cancel', at: 'H_CANCEL', ramOnly: true },
+      { name: 'Enable / cancel a device', at: 'SETDEVICE', ramOnly: true },
+      { name: 'Replay / restart (loads from disk)', at: 'RESTART', pause: true, ramOnly: true },
     ],
     keys: [
       { label: 'Click / L', mouse: 'left' },
@@ -50,7 +50,7 @@ var SentinelProfiles = {
       { label: '4', key: 'Digit4' },
     ],
     help: 'Mouse (port 2): the pointer is a flipped character cell on the lower half of the bridge; click a word on the menu row to type its key, click outside menus for the fire button. ' +
-          'Keyboard: letters and digits as on the C64, Enter = RETURN, ` = ←. Arrows + Right Ctrl: joystick. Answer N at the trainer prompt, click or fire at the title. QUIT needs the disk drive and does not work here.',
+          'Keyboard: letters and digits as on the C64, Enter = RETURN, ` = ←. Arrows + Right Ctrl: joystick. Answer N at the trainer prompt, click or fire at the title. Quit / Oops-continue returns to play; Replay still needs disk loading.',
   },
 };
 

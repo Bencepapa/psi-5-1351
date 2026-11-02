@@ -16,7 +16,7 @@ Build: `python ef/efbuild.py`. Run: `x64sc -cartcrt psi5_ef.crt -controlport2dev
 | Engineering **Status**: click a device row | Enables or cancels the device (`$95AC`), so it shows RqE/RqC like the menu does |
 | Engineering **Display**, Weapons firing orders, Repair fix-it, Scan detailed examination: drag a row to another row | Ranks the item at the new position (`$8AE7`) |
 | Navigation **Status**: click a course | Selects it without rank-row flashing |
-| Navigation **Display**: click a course | Moves it to position 1; the selected course flashes yellow and shifted rows blue. No drag preview. |
+| Navigation **Display**: click a course | Moves it to position 1; only that course flashes yellow. Hover is white; every other course is black. No drag preview. |
 | Scan **Status**: click a target | Examines it (`$8CFC`) |
 | Repair **Status**: click a damaged item | Types Assign and its letter; the game then asks how many robodroids |
 | A list while the game asks for a letter or number | Types the clicked row's item letter or row number |
@@ -48,13 +48,17 @@ The pointer is sprite 7, a white arrow with a black outline (multicolour). Nothi
 
 A menu-row hover now sets the game's cursor endpoint (`$0774`), word start (`$4D`) and option ordinal (`$3D`) directly, then repaints the single shared menu highlight. It also invalidates remembered deeper menu choices, as native left/right movement does. Moving from 1 to 9 selects 9 immediately; no intermediate joystick pulses are generated. Clicking fires the native selection. Physical joystick directions take precedence over mouse targeting. Lowercase prompt/suffix labels and separators remain non-interactive. The `WPMENU` hook prevents the native forward and backward paint loops from whitening `priority_` at all, rather than fixing it a frame later; it does not suppress lowercase letters inside real choices such as `At-will`.
 
+Native choices can contain underscores that the game font displays as spaces. Hover and label correction preserve those groups instead of selecting or recolouring their internal words separately. A lowercase prompt prefix such as `priority_` remains non-interactive. Replay uses the simpler native choices `Same New` plus Back, under `QUIT - Replay with Same crew & course?`. Its original S/N shortcuts and replay destinations are preserved; only the native record's display text/layout is shortened.
+
 On a list row, the mouse still finds the item letter in the clicked column (including the two-column device lists). If the game is asking for a letter or number, it types the clicked item letter or row number. Otherwise it acts by the screen title: Engineering Status toggles a device, Navigation selects a course, Scan Status examines a target, Repair Status types Assign and its letter, and the priority lists rank on a drag. Before acting it saves `$2D-$3A` in `RECBUF` and restores it afterwards, so a half-typed command survives.
 
 **Sources:** `ef/mouse_ram.asm`, `ef/mouse_rom.asm`; the cartridge itself is `ef/ef_boot.asm`, `ef/ef_res.asm` and `ef/efbuild.py`.
 
 List recognition still reads the rendered item letters and title; the original game does not register mouse rectangles when drawing tables. `ROWADR` uses fixed row-offset tables. List hover, drag preview, label safety correction and flash painting run once per pending frame from `MKEY`, starting on PAL raster lines 240-295. `ROMCALL` masks interrupts while mapping ROML, so this work is restricted to that window. The split IRQ retains pointer/input work and direct native menu targeting. Flash setup and restoration paint one row per update. `HOVE` stores the list's end column; joystick polling never resets those list bounds.
 
-Navigation uses the native `$8AE7` routine, which selects position 1. Status selection suppresses rank feedback; Display selection retains it. A new rank during an existing flash keeps `BASEC` and merges the old and new row ranges, so every previously painted row is eventually restored even if a list item disappears.
+Navigation uses the native `$8AE7` routine, which selects position 1. Status selection suppresses rank feedback; Display flashes only the selected course. In other divisions, a new rank during an existing flash keeps `BASEC` and merges the old and new row ranges, so every previously painted row is eventually restored even if a list item disappears.
+
+Navigation Display has a separate deterministic colour pass over its five fixed course rows: black base, yellow first-course flash, then a single white hover. It does not use saved generic overlay colours or blue shifted rows. Ownership at unused colour-RAM cell `$DBE9` tracks the last Nav hover/flash; leaving the screen removes only those white/yellow cells and preserves newly drawn headings. Repair's native palette is unchanged. Other divisions retain the generic drag/rank feedback described above.
 
 **Feedback:** on the menu row, the game's native active selection follows the pointer and is the only white highlight. List-row clicks retain their own white row/column preview; a dragged row in a priority list turns grey and the row under the pointer yellow, the row it would land on. After the rank the moved row flashes yellow and the shifted rows blue for 40 frames. Clicking the back arrow, or the right button anywhere in the bridge menus, goes back; during a drag the right button cancels it. The trainer prompt and crew selection don't have this: they use another key queue.
 

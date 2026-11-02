@@ -26,7 +26,8 @@ FLTGT    = $DFFF
 COLGREY  = 12
 COLHOVER = 1              ; white
 COLLABEL = 3              ; cyan, for non-interactive prompt/suffix text
-HOVC     = $DBE8          ; colour RAM past the screen: holds a colour
+HOVC     = $DBE8          ; saved hover colour, or Navigation's last hovered row offset
+NAVON    = $DBE9          ; bit 0: Nav colour ownership; bit 1: last first row was yellow
 HOVD1    = $53F6          ; unused end of the text screen: scratch
 HOVD2    = $53F7
 COLMOVED = 7             ; yellow
@@ -119,6 +120,19 @@ MPDONE:
         RTS
 ; ---- list colours: the dragged row grey, then a flash of the rows that changed ----
 VIS:    JSR LABELS      ; safety net outside the raster-critical input path
+        JSR REPLAYTITLE
+        LDA TITLE+1
+        CMP #'N'
+        BNE VOTHER
+        LDA TITLE+12
+        CMP #'-'
+        BNE VOTHER
+        JMP NAVVIS
+VOTHER: LDA NAVON
+        AND #1
+        BEQ VNORMAL
+        JSR NAVCLEAR    ; never carry Navigation's hover/flash into another division
+VNORMAL:
         LDA CANCEL
         BEQ VGO
         JMP VCANCEL
@@ -268,22 +282,24 @@ HOVER:  LDA BTN
 HV0:
         STA MOLD
         LDA MENUON      ; only while the menu loop runs
-        BEQ HVG
+        BNE HVACTIVE
+        JMP HVG
+HVACTIVE:
         LDX CROW
         CPX #14
-        BNE HVL
+        BEQ HVMENU
+        JMP HVL
+HVMENU:
         LDY CCOL        ; menu row: the word under the pointer
         LDA MENU,Y
         CMP #$20
-        BEQ HVG
-        CMP #$5F        ; the game separates a prompt label from its choices with this
-        BEQ HVG
+        BNE HM1
+        JMP HVG
 HM1:    DEY
         BMI HM2
         LDA MENU,Y
         CMP #$20
         BEQ HM2
-        CMP #$5F
         BNE HM1
 HM2:    INY
         STY HOVD1
@@ -294,7 +310,6 @@ HM3:    INY
         LDA MENU,Y
         CMP #$20
         BEQ HM4
-        CMP #$5F
         BNE HM3
 HM4:    STY HOVD2
         LDY HOVD1       ; lower-case words are prompt/suffix labels, not choices
@@ -302,7 +317,21 @@ HM4:    STY HOVD2
         CMP #'a'
         BCC HM5
         CMP #'z'+1
-        BCC HVG
+        BCS HM5
+        ; An underscore is part of a native choice (Same_crew_&_course).
+        ; Only a lowercase prompt prefix before '_' is non-interactive.
+HMPREFIX:INY
+        CPY HOVD2
+        BCS HVG
+        LDA MENU,Y
+        CMP #$5F
+        BNE HMPREFIX
+        INY
+        STY HOVD1
+        CPY CCOL
+        BCC HM5
+        BEQ HM5
+        BCS HVG
 HM5:
         LDA HOVR
         CMP #14
@@ -418,8 +447,7 @@ LB4:    INY             ; skip an interactive word
         LDA MENU,Y
         CMP #$20
         BEQ LB0
-        CMP #$5F
-        BNE LB4
+        BNE LB4        ; underscores inside an uppercase choice are not label separators
 LB1:    LDA MENU,Y
         CMP #$5F
         BNE LB1A
@@ -1000,7 +1028,17 @@ RN2:    PLA
         LDA #2
         STA ACT
         RTS             ; Navigation Status selects the course, but does not flash a ranked range
-RNBASE: LDA FLT
+RNBASE: CMP #2
+        BNE RNREGULAR
+        LDA NAVON       ; retain ownership of any previous yellow row until repaint
+        ORA #1
+        STA NAVON
+        LDA #FLASHLEN   ; Navigation Display: only the new first course flashes
+        STA FLT
+        LDA #2
+        STA ACT
+        RTS
+RNREGULAR:LDA FLT
         BNE RN3         ; a quick second rank must not save blue/yellow as its base
         LDA DRAGR       ; (otherwise BASEC is still valid)
         BNE RN3
@@ -1163,14 +1201,141 @@ NAVCLICK:
         JSR SAMEROW
         BEQ NAVONE
         RTS             ; Display uses a click, not drag-and-drop
-NAVONE: LDA #0
-        BEQ NAVRANK
+NAVONE: LDA #2
+        BNE NAVRANK
 NAVSEL: LDA #1
 NAVRANK:STA MOLD
         LDA #'N'
         LDX #0
         LDY #'1'
         JMP RANK
+
+; Navigation Display has five fixed course rows. Rebuild their colours from
+; black each update, then add one selected-item flash and one current hover.
+; A separate flag avoids leaking saved overlay colours into another screen.
+NAVVIS: LDA NAVON
+        AND #1
+        BNE NVREADY
+        JSR HVCLR
+        LDA #0
+        STA FLT
+        STA DRAGR
+        STA PREVW
+NVREADY:LDA #1
+        STA NAVON
+        LDA CROW
+        CMP #14
+        BEQ NVKEEP
+        LDA #0
+        STA HOVR       ; list hover is rendered fresh, with no saved colour to restore
+NVKEEP:
+        LDA #15
+        STA HOVC        ; no Nav hover; otherwise this cell holds row offset 0-4
+        JSR NAVBLACK
+        LDA FLT
+        BEQ NVHOVER
+        LDA #3
+        STA NAVON       ; ownership plus a yellow first row to clean on exit
+        DEC FLT
+        LDA #COLMOVED
+        LDY #39
+NVFLASH:STA $DAA8,Y      ; row 17, the newly selected course
+        DEY
+        BPL NVFLASH
+NVHOVER:LDA MENUON
+        BEQ NVEND
+        LDX CROW
+        CPX #17
+        BCC NVEND
+        CPX #22
+        BCS NVEND
+        TXA
+        SEC
+        SBC #17
+        STA HOVC
+        LDA #COLHOVER
+        JMP PAINT
+NVEND:  RTS
+NAVCLEAR:
+        LDA HOVC
+        AND #15
+        CMP #5
+        BCS NVCFLASH
+        CLC
+        ADC #17
+        TAX
+        JSR NVRESTORE
+NVCFLASH:LDA NAVON
+        AND #2
+        BEQ NVCEND
+        LDX #17
+        JSR NVRESTORE
+NVCEND:
+        LDA #0
+        STA NAVON
+        STA HOVR
+        STA FLT
+        STA DRAGR
+        STA PREVW
+        RTS
+; On a new screen, preserve its red/cyan headings: remove only the white or
+; yellow cells in the rows that Navigation actually highlighted.
+NVRESTORE:
+        LDA $FB
+        PHA
+        LDA $FC
+        PHA
+        JSR ROWADR
+        STA $FB
+        TXA
+        ADC #$D8
+        STA $FC
+        LDY #39
+NVR0:   LDA ($FB),Y
+        AND #15
+        CMP #COLHOVER
+        BEQ NVRBLACK
+        CMP #COLMOVED
+        BNE NVRNEXT
+NVRBLACK:LDA #0
+        STA ($FB),Y
+NVRNEXT:DEY
+        BPL NVR0
+        PLA
+        STA $FC
+        PLA
+        STA $FB
+        RTS
+NAVBLACK:
+        LDA #0
+        LDY #39
+NVB0:   STA $DAA8,Y
+        STA $DAD0,Y
+        STA $DAF8,Y
+        STA $DB20,Y
+        STA $DB48,Y
+        DEY
+        BPL NVB0
+        RTS
+
+; The short Replay choices use the original native S/N/back destinations.
+; Put their shared explanation on the 40-column breadcrumb row instead.
+REPLAYTITLE:
+        LDA $0C
+        CMP #$54
+        BNE RPTEND
+        LDA $0D
+        CMP #$BF
+        BNE RPTEND
+        LDY #39
+RPT0:   LDA RPTEXT,Y
+        STA $5208,Y
+        LDA #1
+        STA $DA08,Y
+        DEY
+        BPL RPT0
+RPTEND: RTS
+RPTEXT: .byte " QUIT - Replay with Same crew & course? "
 
 ROWLO:  .byte $00,$28,$50,$78,$A0,$C8,$F0,$18
         .byte $40,$68,$90,$B8,$E0,$08,$30,$58

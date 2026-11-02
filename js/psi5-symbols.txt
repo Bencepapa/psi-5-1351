@@ -47,7 +47,8 @@ H_EXAMINE       $8CFC
 H_FIREWEAPONS   $8DCB
 H_ENABLE        $8E8E
 H_P             $8E93
-RESTART         $89C1   ; QUIT: reloads from disk (no disk here)
+QUITDISPATCH    $89C1   ; also handles Oops-continue without restarting
+RESTART         $89D5   ; actual replay/restart path, after Oops-continue branches away
 REDRAW          $93E8
 SETDEVICE       $95AC   ; A = 1 enable, 0 cancel, $2F = device letter
 CMDDEPT         $2D     ; command record: department, command, argument, position

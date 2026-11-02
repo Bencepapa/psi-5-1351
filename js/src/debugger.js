@@ -139,6 +139,8 @@ var SentinelDebugger = (function () {
     if (!on) { delete this.eventsOn[e.name]; return; }
     var rec = { pause: pause, count: 0, fn: null };
     rec.fn = function (m) {
+      // Native game addresses overlap the temporarily mapped cartridge code.
+      if (e.ramOnly && m.cartMode && m.cpu.pc >= 0x8000 && m.cpu.pc < 0xC000) return;
       rec.count++;
       self.say(e.name + ' (' + e.at + ', frame ' + m.frame + ')', 'event');
       if (rec.pause) m.breakRequest = { type: 'event', name: e.name, pc: m.cpu.pc };

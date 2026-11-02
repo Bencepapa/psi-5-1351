@@ -20,7 +20,7 @@ support, running unchanged on a JS 6502 core with a debugger. The browser defaul
 
 ## Limits
 
-- QUIT / restart loads from disk (KERNAL `LOAD`, which is not there) and does not work.
+- Quit / Oops-continue returns to play. Actual Replay / restart still loads from disk (KERNAL `LOAD`, which is not there).
 - The full-game cartridge starts at the trainer prompt; the bridge cartridge starts on the bridge.
 - Checked only against the screenshots and game state described below, not against VICE frame by frame.
 
@@ -47,9 +47,14 @@ The generated download name comes from the selected cartridge filename. Mouse la
 - the debugger: a write watch, and a saved state that runs the same 50 frames after loading
 
 The suite also checks Navigation Status selection without flash, Navigation Display click-to-first
-with yellow/blue feedback, overlapping rank-flash cleanup after a row disappears,
+with a single yellow course flash and exclusive white hover on a black base, cleanup when
+entering Repair, overlapping generic rank-flash cleanup after a row disappears,
 list-hover column bounds across joystick polls, and visual-update completion before the next
 top raster split. Game-address breakpoints exclude the overlapping mouse ROM bank.
 Menu checks trace cursor writes for direct 1-to-9 and 9-to-1 hover, verify the
 activated command, and observe individual colour writes through both native
 paint loops to ensure `priority_` never receives white.
+Replay shows a shared question above short Same / New / Back choices. Both native
+replay destinations and Oops-continue are checked with the debugger event profile enabled.
+The restart pause is at
+`$89D5`, after the Oops-continue branch; RAM-only game events ignore overlapping cartridge code.

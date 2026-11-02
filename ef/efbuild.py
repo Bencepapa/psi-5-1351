@@ -102,9 +102,18 @@ if MOUSE:
              0x9B85: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU']),
              0x86AD: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU'])}
     hooked = dict.fromkeys(HOOKS, 0)
+    replay_old = b'Same_crew_&_course New_crew_&_course ' + bytes([255, 3, 0xD3, 0xCE, 0x14, 0x2E, 0xBE, 0x40, 0xBE, 0xA7, 0xBB])
+    replay_short = (b'Same New ' + replay_old[-11:]).ljust(len(replay_old), b'\0')
+    menu_patched = {'replay': 0}
 
 
     def hook(mem, start):
+        # Keep the native S/N/back keys and destination pointers, moving them
+        # after the shorter display string. Other node addresses stay fixed.
+        i = 0xBF54 - start
+        if 0 <= i and bytes(mem[i:i + len(replay_old)]) == replay_old:
+            mem[i:i + len(replay_old)] = replay_short
+            menu_patched['replay'] += 1
         # hooks every place that holds the original bytes (RAM image and every file that has them)
         for a, (old, tgt) in HOOKS.items():
             i = a - start
@@ -145,7 +154,8 @@ def rec(pos, dst, length):
 p1 = add(img[0x0200:0xD000])
 p2 = add(img[0xE000:0x10000])
 p3 = add(img[0xD000:0xE000])
-colram = open(os.path.join(ROOT, 'tools', SNAP + 'col.bin'), 'rb').read()[2:]
+colram = bytearray(open(os.path.join(ROOT, 'tools', SNAP + 'col.bin'), 'rb').read()[2:])
+colram[0x3E9] = 0       # mouse Navigation-colour ownership flag, outside the visible screen
 if BRIDGE:      # the snapshot's list rows are one colour; a cell that isn't was the pointer of the time
     colram = bytearray(colram)
     for row in range(17, 25):
@@ -187,6 +197,7 @@ directory += b'\0'
 assert len(directory) <= 256, len(directory)
 for address in (0x9B85, 0x86AD):
     assert hooked[address], f'native menu paint hook missing at ${address:04X}'
+assert menu_patched['replay'], 'native Replay menu record not found'
 
 # ---- boot code (bank 0) ----
 prefix = ''.join(f'{k} = ${res_sym[k]:04X}\n' for k in ('COPY', 'CBANK', 'CSRC', 'CDST', 'CLEN', 'GO'))

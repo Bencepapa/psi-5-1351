@@ -105,6 +105,16 @@ function pointerTo(m, row, col) {
   frames(m, 3);
 }
 function rowChar(m, row, col) { return m.ram[SYM.TEXTSCREEN + row * 40 + col]; }
+function waitForTitle(m, text, max = 1200) {
+  for (let i = 0; i < max; i++) {
+    if (String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 15 * 40, SYM.TEXTSCREEN + 16 * 40)).includes(text)) {
+      frames(m, 20); // let the rest of the delayed redraw and colour cleanup finish
+      return true;
+    }
+    if (!frames(m, 1)) return false;
+  }
+  return false;
+}
 function findRowChar(m, row, code) {
   for (let col = 0; col < 40; col++) if (rowChar(m, row, col) === code) return col;
   return -1;
@@ -486,6 +496,56 @@ function playthrough(dma) {
     if (priorityCol >= 0) clickPointer(m, 14, priorityCol);
     check(targetCol >= 0 && priorityCol >= 0 && m.ram[SYM.CMDPOS + 2] === 0x31,
           label + 'Weapons Fire Priority 1 is clickable (menu "' + priorityMenu.trimEnd() + '")');
+    m.loadState(engineeringMenuState);
+    clickPointer(m, 14, 39, true);
+    clickPointer(m, 14, findRowChar(m, 14, 0x51));
+    const quitEvent = Profiles.psi5.events.find(e => e.at === 'RESTART');
+    const quitHooks = new Hooks(m, SYM), quitDebugger = new Debugger(m, quitHooks, 'psi5', Profiles.psi5);
+    clickPointer(m, 14, findRowChar(m, 14, 0x4F)); // Oops-continue
+    check(!m.stopped && quitDebugger.eventsOn[quitEvent.name].count === 0 && findRowChar(m, 14, 0x51) >= 0,
+          label + 'Quit / Oops-continue returns without a debugger restart pause');
+    clickPointer(m, 14, findRowChar(m, 14, 0x51));
+    clickPointer(m, 14, findRowChar(m, 14, 0x52)); // Replay, without choosing a disk reload
+    const replayText = String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 14 * 40, SYM.TEXTSCREEN + 15 * 40));
+    const replayTitle = String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 13 * 40, SYM.TEXTSCREEN + 14 * 40)).trim();
+    check(replayTitle === 'QUIT - Replay with Same crew & course?' && replayText.trim() === 'Same New ' + String.fromCharCode(0x7F),
+          label + 'Replay uses the shared question and short Same / New / back choices');
+    const replayState = m.saveState();
+    for (const [ordinal, prefix] of [[1, 'Same'], [2, 'New']]) {
+      m.loadState(replayState);
+      const start = replayText.indexOf(prefix);
+      let end = replayText.indexOf(' ', start);
+      if (end < 0) end = 40;
+      let wholeChoice = start >= 0;
+      for (let column = start; column >= 0 && column < end; column++) {
+        m.ram[SYM.MOUSEX] = column * 4 + 1;
+        frames(m, 2);
+        wholeChoice = wholeChoice && m.ram[0x0774] === end - 2 && m.ram[0x3D] === ordinal &&
+          Array.from(m.colorRam.slice(14 * 40 + start, 14 * 40 + end)).every(c => c === 1);
+      }
+      const heldCursor = m.ram[0x0774];
+      for (let frame = 0; frame < 30; frame++) {
+        frames(m, 1); wholeChoice = wholeChoice && m.ram[0x0774] === heldCursor;
+      }
+      check(wholeChoice, label + 'Replay ' + prefix + ' remains one stable choice');
+      const restartBefore = quitDebugger.eventsOn[quitEvent.name].count;
+      m.mouse.left = true;
+      let restartHit = false;
+      for (let frame = 0; frame < 1200; frame++) {
+        if (frame === 8) m.mouse.left = false; // the native command waits for button release
+        const result = m.run();
+        if (result === 'break') {
+          restartHit = m.breakInfo.type === 'event' && m.breakInfo.name === quitEvent.name;
+          break;
+        }
+        if (m.stopped) break;
+      }
+      m.mouse.left = false;
+      check(restartHit && quitDebugger.eventsOn[quitEvent.name].count === restartBefore + 1 &&
+            m.ram[0x2F] === prefix.charCodeAt(0) && m.ram[0x0755] === ordinal - 1,
+            label + 'Replay ' + prefix + ' keeps the correct native replay destination (' + restartHit + '; count ' + quitDebugger.eventsOn[quitEvent.name].count + '/' + restartBefore + '; command ' + Array.from(m.ram.slice(0x2D,0x31)).join(',') + '; mode ' + m.ram[0x0755] + '; break ' + JSON.stringify(m.breakInfo) + ')');
+    }
+    m.hooks = null;
     m.loadState(idleBridgeState);
 
     // Navigation Status course clicks select without queue-rank row flashes.
@@ -515,6 +575,12 @@ function playthrough(dma) {
     const navRows = [17,18,19,20,21].map(row => String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + row * 40, SYM.TEXTSCREEN + row * 40 + 40)).trimEnd());
     const navSource = 18;
     if (navDisplayTitle.includes('NAVIGATION - POSSIBLE COURSES')) {
+      for (const row of [17,18,19,20,21]) {
+        m.ram[SYM.MOUSEY] = row * 8 + 4;
+        frames(m, 2);
+        check([17,18,19,20,21].every(r => m.colorRam[r * 40 + 3] === (r === row ? 1 : 0)),
+              label + 'Navigation hover selects only course row ' + row + ', every other row is black');
+      }
       pointerTo(m, navSource, 2);
       const navLetter = rowChar(m, navSource, 2);
       let movedYellow = false, shiftedBlue = false;
@@ -530,12 +596,34 @@ function playthrough(dma) {
       frames(m, 8);
       check(m.efRam[0xFA] === 0, label + 'Navigation Display press has no drag preview');
       m.mouse.left = false;
+      frames(m, 6);
+      m.ram[SYM.MOUSEY] = 19 * 8 + 4; frames(m, 2);
+      check(m.efRam[0xFC] > 0 && [18,19,20,21].every(row => m.colorRam[row * 40 + 3] === (row === 19 ? 1 : 0)),
+            label + 'Navigation hover remains exclusive while the selected course flashes');
       frames(m, 120);
       m.cpu.step = displayStep;
       check(rowChar(m, 17, 2) === navLetter,
             label + 'Navigation Display click puts the selected course first');
-      check(movedYellow && shiftedBlue,
-            label + 'Navigation Display highlights the moved course yellow and shifted rows blue');
+      check(movedYellow && !shiftedBlue,
+            label + 'Navigation Display flashes only the newly selected course, without blue shifted rows');
+      m.ram[0x03CA] = 0x53; m.ram[0x4E] = 1; frames(m, 100);
+      waitForTitle(m, 'NAVIGATION STATUS');
+      const navAfterStatus = String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 15 * 40, SYM.TEXTSCREEN + 16 * 40));
+      check(navAfterStatus.includes('NAVIGATION STATUS') &&
+            Array.from(m.colorRam.slice(19 * 40, 20 * 40)).some(c => c === 2),
+            label + 'Navigation cleanup preserves the Status screen red headings (title ' + navAfterStatus + '; colours ' + Array.from(m.colorRam.slice(19 * 40, 19 * 40 + 10)).join(',') + ')');
+      m.ram[0x03CA] = 0x44; m.ram[0x4E] = 1; frames(m, 100);
+      waitForTitle(m, 'NAVIGATION - POSSIBLE COURSES');
+      m.ram[SYM.MOUSEY] = 17 * 8 + 4; frames(m, 2);
+      // Leave a live white course hover behind while changing divisions by keys.
+      m.ram[0x03CA] = 0x14; m.ram[0x4E] = 1; frames(m, 100);
+      m.ram[0x03CA] = 0x52; m.ram[0x4E] = 1; frames(m, 100);
+      m.ram[0x03CA] = 0x44; m.ram[0x4E] = 1; frames(m, 100);
+      waitForTitle(m, 'REPAIR');
+      const repairTitle = String.fromCharCode(...m.ram.slice(SYM.TEXTSCREEN + 15 * 40, SYM.TEXTSCREEN + 16 * 40));
+      check(repairTitle.includes('REPAIR') && (m.colorRam[0x3E9] & 1) === 0 &&
+            [17,18,19,20,21].every(row => m.colorRam[row * 40 + 3] === 0),
+            label + 'leaving Navigation for Repair clears the old white hover and flash (title ' + repairTitle + '; colours ' + [17,18,19,20,21].map(row => m.colorRam[row * 40 + 3]).join(',') + ')');
     } else {
       check(false, label + 'Navigation Display courses visible (title "' + navDisplayTitle.trimEnd() + '"; ' + navRows.join(' | ') + ')');
     }
@@ -676,12 +764,28 @@ joystickRegression(games[0].m, 'full-game cartridge');
   check(a === b, 'debugger: loading a saved state (through text) and running 50 frames gives the same memory, PC and cycles');
 }
 
-// QUIT / restart: known not to work (it loads from disk, the KERNAL LOAD is not there)
+// Oops-continue is tested above; only the actual Replay path should pause.
+for (const dma of [false, true]) {
+  const m = boot(dma); frames(m, 200);
+  const hooks = new Hooks(m, SYM), dbg = new Debugger(m, hooks, 'psi5', Profiles.psi5);
+  const event = Profiles.psi5.events.find(e => e.at === 'RESTART');
+  const saved = m.saveState();
+  m.cartMode = 1; m.efBank = 1; m.cpu.pc = SYM.RESTART;
+  m.exec();
+  check(dbg.eventsOn[event.name].count === 0 && (!m.breakInfo || m.breakInfo.type !== 'event'),
+        'debugger ' + dma + ': overlapping mouse ROM address does not trigger restart');
+  m.loadState(saved);
+  m.cartMode = 0; m.cpu.pc = SYM.RESTART;
+  check(m.exec() && m.breakInfo.type === 'event' && dbg.eventsOn[event.name].count === 1,
+        'debugger ' + dma + ': actual Replay restart still pauses before disk loading');
+}
+
+// Actual replay reload remains unsupported (the KERNAL LOAD is not there).
 {
   const m = boot(false);
   frames(m, 200); tap(m, 'KeyN', 4, 20); until(m, 0x04B1, 0x04B8, 800);
   m.joy2 = 16; frames(m, 5); m.joy2 = 0; until(m, 0x5F90, 0x5FA0, 1500);
-  console.log('info: QUIT is not tested (needs the disk drive); the restart code is at $' + hx(SYM.RESTART));
+  console.log('info: actual Replay disk reload is not tested; Oops-continue and restart pause are covered');
 }
 
 console.log(failures ? failures + ' check(s) FAILED' : 'all checks passed');
