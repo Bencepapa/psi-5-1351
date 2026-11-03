@@ -16,9 +16,10 @@ from krillpack import decode
 from d64read import prg_entries, read_file
 
 BRIDGE = '--bridge' in sys.argv
-ARGS = [a for a in sys.argv[1:] if a != '--bridge']
+NEWUI = '--newui' in sys.argv       # the New UI: same cartridge, New UI branches of the mouse code
+ARGS = [a for a in sys.argv[1:] if a not in ('--bridge', '--newui')]
 SNAP = 'snapb_' if BRIDGE else 'snap_'
-OUT = ARGS[0] if ARGS else os.path.join(ROOT, 'psi5_ef_bridge.crt' if BRIDGE else 'psi5_ef.crt')
+OUT = ARGS[0] if ARGS else os.path.join(ROOT, 'psi5_ef' + ('_newui' if NEWUI else '') + ('_bridge' if BRIDGE else '') + '.crt')
 D64 = os.path.join(ROOT, 'PSI-5 +4D 101% ATA.d64')
 _m = re.search(r'\.;([0-9a-f]{4}) (\w\w) (\w\w) (\w\w) (\w\w) (\w\w) (\w\w) ([01]{8})',
                open(os.path.join(ROOT, 'tools', SNAP + 'cpu.txt')).read())
@@ -27,8 +28,24 @@ CPU = dict(pc=int(_m.group(1), 16), a=int(_m.group(2), 16), x=int(_m.group(3), 1
 print('snapshot CPU', {k: hex(v) for k, v in CPU.items()})
 
 
+def variant(src):
+    # ';#if NEWUI' / ';#else' / ';#endif' select the lines of the build (no nesting)
+    out, keep = [], True
+    for line in src.split(chr(10)):
+        tag = line.strip()
+        if tag == ';#if NEWUI':
+            keep = NEWUI
+        elif tag == ';#else':
+            keep = not keep
+        elif tag == ';#endif':
+            keep = True
+        elif keep:
+            out.append(line)
+    return chr(10).join(out)
+
+
 def asm_file(fn, prefix='', suffix=''):
-    out, sym, _ = assemble(prefix + open(os.path.join(HERE, fn), encoding='utf8').read() + suffix)
+    out, sym, _ = assemble(prefix + variant(open(os.path.join(HERE, fn), encoding='utf8').read()) + suffix)
     return out, sym
 
 

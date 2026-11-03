@@ -27,7 +27,7 @@ const ctx = {};
 vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'programs.js'), 'utf8'), ctx);
 const PROG = ctx.PSI5_PROGRAMS.psi5;
 const SYM = PROG.symbols;
-const BRIDGE_CRT = new Uint8Array(fs.readFileSync(path.join(ROOT, 'ref', 'psi5_ef_bridge_tested.crt')));
+const BRIDGE_CRT = new Uint8Array(fs.readFileSync(process.env.PSI5_BRIDGE_CRT || path.join(ROOT, 'ref', 'psi5_ef_bridge_tested.crt')));
 const FULL_CRT = new Uint8Array(fs.readFileSync(path.join(ROOT, 'ref', 'psi5_ef_tested.crt')));
 const OUT = process.argv[2] || path.join(__dirname, 'out');
 fs.mkdirSync(OUT, { recursive: true });

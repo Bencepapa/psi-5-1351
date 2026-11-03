@@ -50,6 +50,12 @@ TKEY:   LDX #<MKEY
         JSR ROMCALL
         LDA ACT         ; the ROM part has saved the command record and set up its arguments
         BEQ TK9
+;#if NEWUI
+        LDX #0          ; New UI: the ROM part wrote the command letter to $2E; the game's dispatch runs it
+        JSR $8A4D
+        JMP TK8
+        .fill 15,0      ; free in the New UI (keeps the RAM part's layout the same as the Classic one)
+;#else
         LSR A           ; ACT 1=device, 2=rank, 3=examine
         BCC TKR
         BNE TKE
@@ -59,6 +65,7 @@ TKEY:   LDX #<MKEY
 TKR:    JSR $8AE7       ; Nav always selects rank 1; other departments use $30
         JMP TK8
 TKE:    JSR $8CFC       ; examine target $2F
+;#endif
 TK8:    LDX #<MREST
         JSR ROMCALL
 TK9:    JMP $3EE9

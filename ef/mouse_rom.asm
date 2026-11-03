@@ -43,7 +43,11 @@ FLASHLEN = 40            ; frames
         * = $8000
         JMP MPRE        ; fixed entry points for the RAM part
         JMP MJOY
+;#if NEWUI
+        JMP NUKEY
+;#else
         JMP MKEY
+;#endif
         JMP MSPR
         JMP MTOP
         JMP MXOR
@@ -813,6 +817,25 @@ MRS1:   LDA RECBUF,Y
 ; ROMCALL masks interrupts while ROML is mapped. Run the visual work once per
 ; frame, starting on PAL lines 240-295, before the $2D top split next frame.
 ; INTXT bit 0 is pending; bits 6/7 retain their sprite meanings.
+;#if NEWUI
+; New UI: every action goes through the game's own dispatch ($8A4D, called by the RAM part).
+; MKEY decides the action as before; this turns it into the command letter in $2E.
+; $2D already holds the department letter (the record of the department menu).
+NUKEY:  JSR MKEY
+        PHA             ; ROMCALL hands MKEY's A back to the RAM part
+        LDX ACT
+        BEQ NUK9
+        LDA NUCMD-1,X
+        CPX #1
+        BNE NUK1
+        LDY ACTA        ; device: 1 = Enable, 0 = Cancel
+        BNE NUK1
+        LDA #'C'
+NUK1:   STA $2E
+NUK9:   PLA
+        RTS
+NUCMD:  .byte 'E','R','E'   ; ACT 1 device (Enable), 2 rank, 3 examine
+;#endif
 MKEY:   LDA INTXT
         AND #1
         BEQ MKVIS9
