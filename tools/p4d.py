@@ -8,12 +8,13 @@ import socket, subprocess, sys, time, os
 SP = os.path.dirname(os.path.abspath(__file__))
 VICE = r'C:\dev\c64\vice\win\bin\x64sc.exe'
 D64 = os.environ.get('PSI_D64', r'C:\dev\c64\psi5\PSI-5 +4D 101% ATA.d64')
+MONPORT = int(os.environ.get('MONPORT', '6511'))
 
 
 def conn():
     for _ in range(40):
         try:
-            return socket.create_connection(('127.0.0.1', 6511), timeout=5)
+            return socket.create_connection(('127.0.0.1', MONPORT), timeout=5)
         except OSError:
             time.sleep(0.5)
     raise SystemExit('no monitor')
@@ -66,7 +67,7 @@ def keys(m, codes):
 
 a = sys.argv[1]
 if a == 'boot':
-    subprocess.Popen([VICE, '-remotemonitor', '-remotemonitoraddress', 'ip4://127.0.0.1:6511',
+    subprocess.Popen([VICE, '-remotemonitor', '-remotemonitoraddress', f'ip4://127.0.0.1:{MONPORT}',
                       '-controlport2device', '3', '-autostart', D64],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(5)
