@@ -324,6 +324,14 @@ Goal: the New UI never uses the menu interpreter. It fills the command record an
 7. **Cut over.** Redirect the main loop's call into the interpreter (`$8655`) to the New UI loop. Keep `$BB1F` (`JMP $8814`) and the Acknowledge strings until they are proven unused.
 8. **Free the space.** Move the strings the Acknowledge reader and the remaining prompts need into a compact table, then reuse `$BB22-$BEA5`, `$BEA6-$C40F` and `$8655-$8866` for New UI RAM code. On the cartridge most New UI logic can stay in ROM; the freed RAM matters most for a later D64.
 
+Verified in JS (2026-11-03, New UI bridge cartridge):
+
+- Step 1 and 2 are built: `efbuild.py --newui`; the mouse's device toggle, rank and examine now go through the dispatch, and all 462 JS checks pass on both cartridges.
+- The command record the interpreter builds is exactly the typed letters from `$2D` (department, command, arguments in prompt order), with `$14` after a leaf command, and the executor reaches the dispatch with X = 0. Checked with a CPU hook at `$8867`/`$8A4D` for Nav Accel (`N A 4 S`: speed, then Standard/Evasive), Nav Rank (`N R B`: course letter), Nav Cancel (`N C`), Scan Examine (`S E A 1`: target, priority), Eng Rank (`E R A 2`), Eng Cancel/Enable (`E C A`, `E E A`), Weap Fire (`W F 1 M A 1`: at-will or 1-9, weapon, target, priority), Status/Display.
+- For department commands the executor adds nothing before the dispatch: `$886D` (`$3A` = 0) -> `$88DF`: `$2E` is not `/` and `$2D` is not `A`, so `$89B8`: `LDX #0`, Quit check, `JMP $8A4D`. Its only extra is the return address `$8AA1`; `$8AA2` resets the interpreter's menu afterwards, which the New UI does not need. So `DOCMD` = write the record, `LDX #0`, `JSR $8A4D`.
+- Acknowledge (`$2D` = `A`) and the `/` shortcut are handled inside the executor (`$88EE`: Auto `E`/`D` -> `$07FE`; Clear zeroes `$55D9-$55DE` and calls `$C650`; filters via `$8915`), and Quit (`Q`) jumps to `$89C1`. The New UI calls those parts of the executor, or reimplements them, in step 7.
+- Not covered yet: commands that need a filled list in this game state (Weapons/Repair Cancel, Repair Assign's device prompt), and Acknowledge.
+
 Open questions: whether anything else reads the menu nodes (the mouse menu-row hover reads the native cursor variables `$0774`, `$4D`, `$3D`, which belong to the interpreter); how the input row's command echo is used by the game (it is part of the Classic look and goes away).
 
 ## Startup choice and settings
