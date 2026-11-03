@@ -3,7 +3,8 @@
 usage: python build.py [version]
 Assembles psi5_4d_mouse.asm, writes the code into the unpacked files `di` ($2F60 block) and `c`
 ($CBCC helpers), the hooks into `mx`, repacks the three files (tools/krillpack.py) and writes them
-into a copy of the disk (tools/d64put.py). The 38-block docs file is left out of the copy: the
+into a copy of the disk (tools/d64put.py), and patches the boot file to skip the intro and the
+trainer prompt (notrainer.py). The 38-block docs file is left out of the copy: the
 patched files are larger (code packs worse than the spaces it replaces) and the disk was full.
 """
 import os, re, shutil, subprocess, sys
@@ -94,6 +95,14 @@ def main():
         newprg = os.path.join(WORK, n + '_patched.prg')
         run(os.path.join(TOOLS, 'krillpack.py'), 'repack', os.path.join(PRGS, n + '.prg'), binf, newprg)
         print(n, run(os.path.join(TOOLS, 'd64put.py'), OUT_D64, n, newprg).strip())
+    sys.path.insert(0, TOOLS)
+    from d64read import prg_entries, read_file
+    import notrainer
+    disk = open(OUT_D64, 'rb').read()
+    entry = next(e for e in prg_entries(disk) if e[0] == notrainer.NAME)
+    boot = os.path.join(WORK, 'boot_notrainer.prg')
+    open(boot, 'wb').write(notrainer.patch(read_file(disk, *entry[1:])))
+    print('boot', run(os.path.join(TOOLS, 'd64put.py'), OUT_D64, notrainer.NAME, boot).strip())
     print(f'code ${0x2F60:04X}-${sym["CODEEND"] - 1:04X}, helpers $CBCC-${sym["HELPEND"] - 1:04X}; wrote {OUT_D64}')
 
 
