@@ -287,6 +287,30 @@ The manual's statement that Repair, Weapons and Scanning crew become bored maps 
 
 Consequently their generated work appears in the normal Display list and obeys normal Cancel/Rank behavior. The redesign should not add a second `automatic activity` panel. If future UI wants to mark newly generated rows, that requires a new provenance bit or transient notification; it cannot be reconstructed reliably from the existing queue data.
 
+## What the New UI can free (menu analysis, 2026-11-03)
+
+The command handlers mostly have to stay. Only the keyboard menu around them can go. Callers found by scanning the bridge RAM for `JSR`/`JMP`:
+
+| Handler | Entry | Callers outside the menu dispatch | Verdict |
+|---|---|---|---|
+| Rank | `$8AE7` | mouse `$0260`; Assign `$8C7E`, Examine `$8D39`, `$8E86`, P `$8E97` | stays (drag, and other commands use it) |
+| Cancel (remove from list) | `$8B52` | game logic `$A192`, `$A8A7`, `$AAA9`, `$AAE5`, `$B723` | stays |
+| Cancel Nav / Eng | `$8B58` / `$8B69` | none (`$8B69` calls `$95AC`) | small; replace by direct clicks |
+| Assign | `$8C43` | autonomous Repair `$A1E9` | stays |
+| Examine | `$8CFC` | mouse `$0266`; autonomous Scanning `$B448` | stays |
+| Fire | `$8DCB` | autonomous Weapons `$AA22` | stays |
+| Enable (Eng) | `$8E8E` | only `JMP $95AC` | trivial |
+| Device enable/disable | `$95AC` | mouse `$025A`, Cancel Eng `$8B6B` | stays |
+
+The real space is the menu machinery itself, in `ma` (not `mx`):
+
+- `$BB1F`: `JMP $8814`, the "next" target of every leaf (keep or replace).
+- `$BB22-$BEA5`, about 900 bytes: the item descriptions shown on the input row (`Status report`, `Rank power class`, `Cancel examination of target`, ...). The prompt strings (`? to leave pri`, `robos to device`) and the Acknowledge texts (`next message from WEAP.`) are mixed in, and the message reader still needs these.
+- `$BEA6-$C40F`, about 1.4 KB: the menu nodes. A node holds the item text, the count, the keys (bit 7 = leaf), one description pointer per item and one next-node pointer per item except the back arrow (the interpreter at `$87D5` indexes them as keys + 2 x count + 2 x item). The prompt nodes are 5 bytes (flag, description, next), for example Cancel `$C246`, Rank `$C058` (then the position menu `STOP 1 2 ... 8`), Examine `$C1EB`, Assign `$C2DA` (`1 2 3 4 5 6 7_robodroids`), Fire `$C342` (`Missiles Blasters Cannons Thermos`).
+- The interpreter `$8655-$8866`, about 530 bytes, in `mx`.
+
+If the New UI fills the command record (`$2D`: department, `$2E` command, `$2F` item, `$30` position) itself and calls the executor `$8867`, as the mouse code already does for Rank, Enable and Examine, then the interpreter, the department nodes and the command descriptions are not needed: roughly 2 KB in total. That needs the department letter shortcuts to be reimplemented (a few bytes), the Acknowledge reader to keep its strings, and every command the New UI offers to be tested through the executor. Freeing them piece by piece (only Rank, Cancel, Enable) gains little, because their menu data is a few dozen bytes each.
+
 ## Startup choice and settings
 
 The choice between the two UIs comes right after crew selection, not in a boot menu. After Accept, and before the bridge files load, the player sees:
