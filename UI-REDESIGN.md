@@ -311,6 +311,21 @@ The real space is the menu machinery itself, in `ma` (not `mx`):
 
 If the New UI fills the command record (`$2D`: department, `$2E` command, `$2F` item, `$30` position) itself and calls the executor `$8867`, as the mouse code already does for Rank, Enable and Examine, then the interpreter, the department nodes and the command descriptions are not needed: roughly 2 KB in total. That needs the department letter shortcuts to be reimplemented (a few bytes), the Acknowledge reader to keep its strings, and every command the New UI offers to be tested through the executor. Freeing them piece by piece (only Rank, Cancel, Enable) gains little, because their menu data is a few dozen bytes each.
 
+## Plan: the New UI drives the executor directly
+
+Goal: the New UI never uses the menu interpreter. It fills the command record and calls the game's own command code, so the interpreter, the department menu nodes and the command descriptions (about 2 KB) can be freed later. The Classic UI is not touched.
+
+1. **Separate build.** `efbuild.py --newui` writes `psi5_ef_newui.crt`. The New UI patches are applied to the unpacked `mx`/`ma` images that the cartridge serves; the Classic CRT stays byte-identical. Later the post-crew choice selects which set the loader serves.
+2. **One command entry, `DOCMD`, in the ROM part.** Input: department letter, command letter, item letter, position. It saves `$2D-$3A` (as `SAVE`/`RECBUF` do now), writes the record (`$2D` department, `$2E` command, `$2F` item, `$30` position), sets `$38`/`$39` through `$3FBB`, calls the dispatch `$8A4D` (not the executor `$8867`, so the Processing delay at `$8839` is skipped: Instant comes for free) and restores the record. The mouse's existing direct calls (Rank, device toggle, Examine) become `DOCMD` calls.
+3. **Test every command through `DOCMD` in JS** before anything is removed: Status, Display, Rank (drag), Cancel in all five departments (queue removal, Engineering device off, Navigation), Enable, Fire with the weapon choice, Examine, Assign with the robodroid count, Accel, Acknowledge filters, Clear and Auto. Each test checks the same RAM effect as the keyboard path.
+4. **Menu rows.** The tab bar (row 13) and the command row (row 14) are drawn by the New UI: department colour on both rows, yellow text, white active tab, the six count glyphs, the back arrow in column 39, the home state with Quit and the status line. One field-width table serves drawing and hit-testing. The joystick moves the pointer when no 1351 is found.
+5. **Prompts that remain** become small New UI choices on row 14 instead of interpreter prompts: Fire's weapon (`Missiles Blasters Cannons Thermos`), Assign's robodroid count (`1`-`7`), Accel's speed. Rank's position menu (`STOP 1 2 ... 8`) is replaced by dragging.
+6. **Keyboard.** The New UI's key handler maps the department letters, `1`-`5`, `0` (Acknowledge) and maybe `F`, then calls `DOCMD`.
+7. **Cut over.** Redirect the main loop's call into the interpreter (`$8655`) to the New UI loop. Keep `$BB1F` (`JMP $8814`) and the Acknowledge strings until they are proven unused.
+8. **Free the space.** Move the strings the Acknowledge reader and the remaining prompts need into a compact table, then reuse `$BB22-$BEA5`, `$BEA6-$C40F` and `$8655-$8866` for New UI RAM code. On the cartridge most New UI logic can stay in ROM; the freed RAM matters most for a later D64.
+
+Open questions: whether anything else reads the menu nodes (the mouse menu-row hover reads the native cursor variables `$0774`, `$4D`, `$3D`, which belong to the interpreter); how the input row's command echo is used by the game (it is part of the Classic look and goes away).
+
 ## Startup choice and settings
 
 The choice between the two UIs comes right after crew selection, not in a boot menu. After Accept, and before the bridge files load, the player sees:
