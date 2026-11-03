@@ -23,9 +23,11 @@ The reverse-video active field, not printable brackets, supplies the tab shape. 
 
 The `|` characters above are width guides only. Keep every compact field at five cells: `Weap `, `Scan `, `Nav  `, `Eng  `, `Rep  `. Replacing any one five-cell field with the same 12-cell active field makes the total row width constant and shifts later tabs by the same seven cells regardless of department. Exact starting columns should be derived from these field widths in one shared table used by drawing and mouse hit-testing.
 
-`?NN` is the global Acknowledge/message entry and total pending-message badge. The digits use red reverse video; clicking any of the three cells opens the unfiltered Acknowledge screen. With no messages, keep the three-cell field stable but render only `?` and two spaces.
+`?` plus the total count glyph is the global Acknowledge/message entry; clicking it opens the unfiltered Acknowledge screen. With no messages only `?` is shown.
 
-The five department fields plus one active expansion consume 32 cells. `?NN ` consumes four and Settings one, so the complete row is 37 cells and still fits without shortening department names further. Per-department counts do not belong in these tabs: adding them would either break the fixed widths or make the active Engineering/Navigation names inconsistent.
+Decided after the mockups (2026-11-03): every tab shows its pending-message count right after the name, as one custom glyph: an inverse digit in a rounded box, `1`-`5`, or `+` for six or more, and nothing for zero. Each compact tab is name + count + one space (`Weap❷ Scan❸ Nav❶ Eng❹ Rep `: 4-letter names take 6 cells, 3-letter names 5); the active department takes a 12-cell field (name and count centred) plus one space. With `?` + count + space at the left (3 cells, the total uses the same glyphs) and `*` fixed in column 39, the widest case (Navigation, Engineering or Repair active) fills all 40 columns; with Weapons or Scanning active one cell stays free before `*`. Tabs after the active one shift, so the hit-test table is built from the same field widths.
+
+Count glyphs: the six codes `$02`, `$5F`, `$B8` (blank glyphs), `$1D` (duplicate of `$1E`/`$1F`), `$9A` and `$CC` (duplicates of `$96`) in the bridge charset at `$5800`. None of them appeared on the text screen (`$5000`) in a tour of every department's Status and Display, Acknowledge and 6000 frames of play; the top view uses its own charset at `$6000`. Bit 7 is not reverse video in this charset (those codes are other glyphs), so the active tab is marked by colour (white) only.
 
 `*` is a temporary PETSCII placeholder for Settings until a suitable gear character is chosen. Settings replaces Quit; restart/quit can live inside that screen.
 
@@ -46,6 +48,7 @@ Test only, not a decision: colour by department, using the colours the crew sele
 
 - **Option A, whole text area:** the text area's background is `$D021`, set from `$3A07` by the IRQ at `$8F27` (raster `$AA`). Set it per department; no new raster split is needed. Risk: the list text is black, white and red, so some department colours will be hard to read, and white (hover) or yellow (drag) may disappear on light backgrounds. Check every department with list, header and red text.
 - **Option B, second menu row only:** keep the text area as it is and colour just the command row (row 14). Both menu rows get their blue background from `$8EF9` (`LDY #$06`) at the text split, and it lasts until `$8F27`. Colouring only row 14 needs a background change between row 13 and row 14 (raster about 162), which is a new, cycle-sensitive split. Alternatively, colour the tab bar row too and keep both menu rows in the department colour, which needs no new split.
+- Mockups (JS, Engineering status in every department colour): Option A reads well with lighter colours: Weapons light blue, Scanning light red, Engineering light grey, Repair light green; there is no light purple, so Navigation stays purple or uses cyan. Option B needs yellow (not black or green) tab and command text; the active tab stays white. The user likes A; B with yellow is the alternative. Not decided yet.
 - Judge both on the real machine and in the JS page: legibility of black/white/red text, the white hover, yellow drag preview and blue flash, and whether the active-tab look still works.
 
 
