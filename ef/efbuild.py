@@ -132,10 +132,12 @@ if MOUSE:
     rom_extra = chr(10) + unrolled('SHPUT', shape) + unrolled('SHRST', art)
     rom_extra += chr(10) + open(os.path.join(HERE, 'mouse_front.asm'), encoding='utf8').read()
     rom_extra += chr(10) + 'FARTDATA: .byte ' + ','.join(f'${b:02X}' for b in front_art) + chr(10)
-    rom_out, _ = asm_file('mouse_rom.asm', f'SHSIGA = ${ARTAD + SIG:04X}{chr(10)}SHSIG = ${art[SIG]:02X}{chr(10)}SHBLOCK = ${(ARTAD - 0x4000) // 64:02X}{chr(10)}' + ''.join(f'{k} = ${v:04X}' + chr(10) for k, v in ram_sym.items()
+    rom_out, rom_sym = asm_file('mouse_rom.asm', f'SHSIGA = ${ARTAD + SIG:04X}{chr(10)}SHSIG = ${art[SIG]:02X}{chr(10)}SHBLOCK = ${(ARTAD - 0x4000) // 64:02X}{chr(10)}' + ''.join(f'{k} = ${v:04X}' + chr(10) for k, v in ram_sym.items()
                                                     if k.isupper() and not k.startswith('TK')
                                                     and k not in ('MPRE', 'MJOY', 'MKEY', 'MSPR', 'MTOP', 'MXOR', 'MREST')), rom_extra)
     assert max(rom_out) < 0xA000, 'mouse ROM part exceeds its 8K bank'
+    if os.environ.get('SYMS'):      # debugging: both parts' symbols
+        open(os.environ['SYMS'], 'w').write(''.join(f'{k} {v:04X}' + chr(10) for d in (ram_sym, rom_sym) for k, v in sorted(d.items())))
     mouse_rom = bytes(rom_out.get(a, 0) for a in range(0x8000, 0xA000))
     STA15 = bytes([0x8D, 0x15, 0xD0])
     HOOKS = {0x8F2D: (bytes([0x20, 0xA5, 0x8F]), ram_sym['TPRE']), 0x8FB1: (bytes([0xAD, 0x00, 0xDC]), ram_sym['TJOY']),
@@ -167,6 +169,10 @@ if MOUSE:
             if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == old:
                 mem[i:i + 3] = bytes([old[0] if old[0] == 0x4C else 0x20, tgt & 255, tgt >> 8])
                 hooked[a] += 1
+        if NEWUI:   # the menu highlight's background text: yellow instead of cyan
+            i = 0x94AE - start
+            if 0 <= i and i + 2 <= len(mem) and bytes(mem[i:i + 2]) == bytes([0xA9, 0x03]):
+                mem[i + 1] = 0x07
 
 
     if BRIDGE:      # hooks of the cartridge the snapshot came from point to the old RAM part

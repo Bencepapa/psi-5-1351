@@ -26,7 +26,11 @@ FLHI     = $DFFE
 FLTGT    = $DFFF
 COLGREY  = 12
 COLHOVER = 1              ; white
+;#if NEWUI
+COLLABEL = 7              ; New UI: menu text is yellow
+;#else
 COLLABEL = 3              ; cyan, for non-interactive prompt/suffix text
+;#endif
 HOVC     = $DBE8          ; saved hover colour, or Navigation's last hovered row offset
 NAVON    = $DBE9          ; bit 0: Nav colour ownership; bit 1: last first row was yellow
 HOVD1    = $53F6          ; unused end of the text screen: scratch
@@ -836,7 +840,12 @@ NUK9:   PLA
         RTS
 NUCMD:  .byte 'E','R','E'   ; ACT 1 device (Enable), 2 rank, 3 examine
 ;#endif
+;#if NEWUI
+MKEY:   JSR NUFRAME
+        LDA INTXT
+;#else
 MKEY:   LDA INTXT
+;#endif
         AND #1
         BEQ MKVIS9
         LDA $D011
@@ -871,6 +880,12 @@ MKBACK: LDA #$14
 MK0:    LDA CLICK
         BEQ MKX
         LDX PROW
+;#if NEWUI
+        CPX #13
+        BNE MK0N
+        JMP NUTAB
+MK0N:
+;#endif
         CPX #14
         BNE MKL
         LDA PCOL
@@ -1140,6 +1155,340 @@ SV1:    LDA $2D,Y
         LDA ACTARG
         STA $2F
         RTS
+;#if NEWUI
+; ======================================================================
+; New UI, step 4a: tab bar on row 13 over the native menu interpreter.
+; Home (depth 0) and a department menu (depth 1) show the tab bar; deeper prompts
+; keep the game's echo line. Both menu rows take the department colour ($8EF3 is the
+; operand of the split IRQ's LDY #$06), their cyan text becomes yellow, and the
+; message counts are rounded inverse digits in six unused charset codes.
+NUSCR   = $5208         ; row 13
+NUCOL   = $DA08
+NUDEPTH = $37
+; tab order W S N E R: letter, name lengths, colour, message queue ($39 order N W S R E)
+NUKEYS: .byte 'W','S','N','E','R'
+NULEN:  .byte 4,4,3,3,3
+NUFLEN: .byte 7,8,10,11,6
+NUFOFF: .byte 0,11,22,33,44
+NUCLR:  .byte 14,2,4,12,5
+NUQ:    .byte 1,2,0,4,3
+NUQB:   .byte 8,16,0,32,24      ; the queues' fixed starts ($EC39+i), in NUQ order
+NUNAME: .byte 'W','e','a','p','S','c','a','n','N','a','v',' ','E','n','g',' ','R','e','p',' '
+NUFULL: .byte 'W','e','a','p','o','n','s',' ',' ',' ',' '
+        .byte 'S','c','a','n','n','i','n','g',' ',' ',' '
+        .byte 'N','a','v','i','g','a','t','i','o','n',' '
+        .byte 'E','n','g','i','n','e','e','r','i','n','g'
+        .byte 'R','e','p','a','i','r',' ',' ',' ',' ',' '
+NUQUIT: .byte 'Q','u','i','t'
+NUGL:   .byte $02,$5F,$B8,$1D,$9A,$CC   ; codes for 1 2 3 4 5 + (blank or duplicate glyphs)
+NUGLYPH:
+        .byte $7E,$EF,$CF,$EF,$EF,$C7,$FF,$7E   ; 1
+        .byte $7E,$C7,$F7,$C7,$DF,$C7,$FF,$7E   ; 2
+        .byte $7E,$C7,$F7,$C7,$F7,$C7,$FF,$7E   ; 3
+        .byte $7E,$D7,$D7,$C7,$F7,$F7,$FF,$7E   ; 4
+        .byte $7E,$C7,$DF,$C7,$F7,$C7,$FF,$7E   ; 5
+        .byte $7E,$FF,$EF,$C7,$EF,$FF,$FF,$7E   ; +
+
+; A = department letter -> X = tab index, $FF if not a tab
+NUTABOF:LDX #4
+NUTO1:  CMP NUKEYS,X
+        BEQ NUTO2
+        DEX
+        BPL NUTO1
+NUTO2:  RTS
+
+; X = the department's tab (depth 1 and deeper) or $FF
+NUACTV: LDX #$FF
+        LDA NUDEPTH
+        BEQ NUAC9
+        LDA $2D
+        JMP NUTABOF
+NUAC9:  RTS
+
+; X = tab -> A = its pending messages (X kept)
+NUCOUNT:LDY NUQ,X
+        JSR NUCNT
+        SEC
+        SBC NUQB,X
+        RTS
+
+; A = count -> A = its glyph, a blank for none
+NUGLYC: CMP #0
+        BEQ NUGL0
+        CMP #6
+        BCC NUGL1
+        LDA #6
+NUGL1:  TAY
+        LDA NUGL-1,Y
+        RTS
+NUGL0:  LDA #$20
+        RTS
+
+; once a frame, from MKEY: raster lines 260-289. The main loop only runs after the
+; renderer's IRQ (until about line 257), and the next split IRQ is at line 45.
+NUFRAME:LDA $D011
+        BPL NUF9
+        LDA $D012
+        CMP #4
+        BCC NUF9
+        CMP #34
+        BCS NUF9
+        JMP NUVIS
+NUF9:   RTS
+
+NUVIS:  LDX #7                  ; the glyphs, every frame (loads rewrite parts of the charset)
+NUVG:
+        LDA NUGLYPH+0,X
+        STA $5810,X
+        LDA NUGLYPH+8,X
+        STA $5AF8,X
+        LDA NUGLYPH+16,X
+        STA $5DC0,X
+        LDA NUGLYPH+24,X
+        STA $58E8,X
+        LDA NUGLYPH+32,X
+        STA $5CD0,X
+        LDA NUGLYPH+40,X
+        STA $5E60,X
+        DEX
+        BPL NUVG
+NUVG9:  JSR NUACTV
+        STX TMP
+        LDA #6                  ; menu rows: department colour, blue otherwise
+        CPX #5
+        BCS NUVB
+        LDA NUCLR,X
+NUVB:   STA $8EF3
+        LDX #39                 ; cyan menu text becomes yellow
+NUVC:   LDA $DA30,X
+        AND #$0F
+        CMP #3
+        BNE NUVD
+        LDA #7
+        STA $DA30,X
+NUVD:   DEX
+        BPL NUVC
+        LDA NUDEPTH
+        CMP #2
+        BCS NUPROMPT
+        LDA NUDEPTH             ; redraw the bar only when it would change
+        ASL A
+        ASL A
+        ASL A
+        ADC TMP
+        STA TMP3
+        LDX #4
+NUS1:   JSR NUCOUNT
+        CLC
+        ADC TMP3
+        ASL TMP3
+        ADC TMP3
+        STA TMP3
+        DEX
+        BPL NUS1
+        LDA TMP3
+        CMP NUSIG
+        BEQ NUS9
+        STA NUSIG
+        JMP NUBAR
+NUS9:   RTS
+NUPROMPT:
+        LDA #$FF
+        STA NUSIG
+        LDA #$20
+        STA NUSCR
+        LDX TMP                 ; a prompt: the game only appends to its echo line, so put
+        BMI NUE2                ; the department's prefix back and clear the bar after the cursor
+        LDA NUEOFF,X
+        TAX
+        LDY #0
+NUE1:   LDA NUECHO,X
+        STA NUSCR+1,Y
+        INX
+        INY
+        CPY #6
+        BNE NUE1
+        LDX TMP
+        CPX #2
+        BCS NUE2
+        LDA #$20                ; WEAP.- and SCAN.- : the word starts one cell later
+        STA NUSCR+7
+NUE2:   LDX #39
+NUE3:   LDA NUSCR,X
+        CMP #$7E                ; the input cursor
+        BEQ NUE9
+        LDA #$20
+        STA NUSCR,X
+        DEX
+        BNE NUE3
+NUE9:   RTS
+NUEOFF: .byte 0,6,12,18,24
+NUECHO: .byte 'W','E','A','P','.','-','S','C','A','N','.','-','N','A','V','.','-',' '
+        .byte 'E','N','G','.','-',' ','R','E','P','.','-',' '
+
+NUBAR:  LDX #39
+NUB0:   LDA #$20
+        STA NUSCR,X
+        LDA #7
+        STA NUCOL,X
+        DEX
+        BPL NUB0
+        LDA #'?'
+        STA NUSCR
+        LDX #4                  ; the total
+        LDA #0
+NUBT:   PHA
+        JSR NUCOUNT
+        STA TMP3
+        PLA
+        CLC
+        ADC TMP3
+        DEX
+        BPL NUBT
+        JSR NUGLYC
+        STA NUSCR+1
+        LDA #1
+        STA NUCOL+1
+        LDA #3
+        STA TMP2
+        LDA #0
+        STA TMP3
+NUB1:   LDX TMP3
+        CPX TMP
+        BNE NUB5
+        LDA #11                 ; active: full name and count, centred in 12 cells
+        SEC
+        SBC NUFLEN,X
+        LSR A
+        CLC
+        ADC TMP2
+        TAY
+        LDA NUFLEN,X
+        PHA
+        LDA NUFOFF,X
+        TAX
+NUB2:   LDA NUFULL,X
+        STA NUSCR,Y
+        LDA #1
+        STA NUCOL,Y
+        INX
+        INY
+        PLA
+        SEC
+        SBC #1
+        PHA
+        BNE NUB2
+        PLA
+        JSR NUBCNT
+        LDA TMP2
+        CLC
+        ADC #13
+        STA TMP2
+        JMP NUB6
+NUB5:   LDY TMP2                ; compact: short name and count
+        LDA NULEN,X
+        PHA
+        TXA
+        ASL A
+        ASL A
+        TAX
+NUB3:   LDA NUNAME,X
+        STA NUSCR,Y
+        INX
+        INY
+        PLA
+        SEC
+        SBC #1
+        PHA
+        BNE NUB3
+        PLA
+        JSR NUBCNT
+        INY
+        INY
+        STY TMP2
+NUB6:   INC TMP3
+        LDA TMP3
+        CMP #5
+        BNE NUB1
+        LDA NUDEPTH             ; last cell: back arrow in a department, Quit at home
+        BEQ NUB7
+        LDA #$7F
+        STA NUSCR+39
+        RTS
+NUB7:   LDX #3
+NUB8:   LDA NUQUIT,X
+        STA NUSCR+36,X
+        DEX
+        BPL NUB8
+        RTS
+; the count glyph of tab TMP3 at column Y (Y kept)
+NUBCNT: TYA
+        PHA
+        LDX TMP3
+        JSR NUCOUNT
+        JSR NUGLYC
+        TAX
+        PLA
+        TAY
+        TXA
+        STA NUSCR,Y
+        LDA #1
+        STA NUCOL,Y
+        RTS
+
+; a click on row 13: tabs, ? (Acknowledge), back arrow, Quit -> keys for the interpreter
+NUTAB:  LSR CLICK
+        BCC NUTX
+        LDA NUDEPTH
+        CMP #2
+        BCS NUTX
+        JSR NUACTV
+        STX TMP
+        LDA PCOL
+        CMP #2
+        BCS NUT1
+        LDA #'A'
+        JMP NUKEY2
+NUT1:   CMP #36
+        BCC NUT2
+        LDY NUDEPTH
+        BEQ NUTQ
+        CMP #39
+        BNE NUT2
+        LDA #$14
+        JMP PUSHK
+NUTQ:   LDA #'Q'
+        JMP PUSHK
+NUT2:   LDA #3                  ; walk the fields as NUBAR lays them out
+        STA TMP2
+        LDX #0
+NUT3:   LDA NULEN,X
+        CLC
+        ADC #2
+        CPX TMP
+        BNE NUT4
+        LDA #13
+NUT4:   CLC
+        ADC TMP2
+        STA TMP2
+        LDA PCOL
+        CMP TMP2
+        BCC NUT5
+        INX
+        CPX #5
+        BNE NUT3
+NUTX:   RTS
+NUT5:   CPX TMP
+        BEQ NUTX                ; the open department: nothing to do
+        LDA NUKEYS,X
+NUKEY2: PHA
+        LDA NUDEPTH
+        BEQ NUK3
+        LDA #$14                ; from a department: back to the main menu first
+        JSR PUSHK
+NUK3:   PLA
+        JMP PUSHK
+;#endif
 PUSHK:  LDX KCOUNT
         STA KQUEUE,X
         INC KCOUNT

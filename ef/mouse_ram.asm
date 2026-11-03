@@ -54,7 +54,17 @@ TKEY:   LDX #<MKEY
         LDX #0          ; New UI: the ROM part wrote the command letter to $2E; the game's dispatch runs it
         JSR $8A4D
         JMP TK8
-        .fill 15,0      ; free in the New UI (keeps the RAM part's layout the same as the Classic one)
+; New UI: Y = department index (N W S R E = 0-4): A = that message queue's write position.
+; The queues live in RAM under the KERNAL; the ROM part runs with $01=$37 and ROML mapped.
+NUCNT:  LDA #$35        ; keeps X
+        STA $01
+        LDA $FFE8,Y
+        PHA
+        LDA #$37
+        STA $01
+        PLA
+        RTS
+NUSIG:  .byte 0         ; what the tab bar shows now (depth, tab, counts)
 ;#else
         LSR A           ; ACT 1=device, 2=rank, 3=examine
         BCC TKR

@@ -27,6 +27,7 @@ const ctx = {};
 vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'programs.js'), 'utf8'), ctx);
 const PROG = ctx.PSI5_PROGRAMS.psi5;
 const SYM = PROG.symbols;
+const MENUTEXT = process.env.PSI5_NEWUI ? 7 : 3;   // the New UI's menu text is yellow
 const BRIDGE_CRT = new Uint8Array(fs.readFileSync(process.env.PSI5_BRIDGE_CRT || path.join(ROOT, 'ref', 'psi5_ef_bridge_tested.crt')));
 const FULL_CRT = new Uint8Array(fs.readFileSync(path.join(ROOT, 'ref', 'psi5_ef_tested.crt')));
 const OUT = process.argv[2] || path.join(__dirname, 'out');
@@ -845,14 +846,14 @@ function bridgePriorityRegression(m, dma) {
   const priorityBeforeLabelClick = m.ram[SYM.CMDPOS + 2];
   if (priorityLabelCol >= 0) clickPointer(m, 14, priorityLabelCol);
   const labelIgnored = findRowChar(m, 14, 0x31) >= 0 && m.ram[SYM.CMDPOS + 2] === priorityBeforeLabelClick;
-  check(priorityLabelCol >= 0 && labelHoverColor === 3 && labelIgnored && m.ram[0x0774] === selectionBeforeLabelClick,
-        label + 'Priority prompt label stays cyan and does not move or fire the native selection');
+  check(priorityLabelCol >= 0 && labelHoverColor === MENUTEXT && labelIgnored && m.ram[0x0774] === selectionBeforeLabelClick,
+        label + 'Priority prompt label stays cyan and does not move or fire the native selection (' + labelHoverColor + ',' + labelIgnored + ',' + (m.ram[0x0774] === selectionBeforeLabelClick) + ')');
   if (priorityCol >= 0) pointerTo(m, 14, priorityCol);
   const choiceColor = priorityCol < 0 ? -1 : m.colorRam[14 * 40 + priorityCol];
   const labelColor = priorityLabelCol < 0 ? -1 : m.colorRam[14 * 40 + priorityLabelCol];
   const separatorColor = priorityCol <= 0 ? -1 : m.colorRam[14 * 40 + priorityCol - 1];
   const nativeChoice = priorityCol >= 0 && m.ram[0x0774] === m.ram[0x53F7] - 2;
-  check(priorityCol >= 0 && priorityLabelCol >= 0 && nativeChoice && choiceColor === 1 && labelColor === 3 && separatorColor === 3,
+  check(priorityCol >= 0 && priorityLabelCol >= 0 && nativeChoice && choiceColor === 1 && labelColor === MENUTEXT && separatorColor === MENUTEXT,
         label + 'only Priority 1 is the native white highlight; label/separator stay cyan (' + labelColor + '/' + separatorColor + '/' + choiceColor + ')');
   const labelClickColors = [];
   if (priorityCol >= 0) {
@@ -865,9 +866,9 @@ function bridgePriorityRegression(m, dma) {
   const heldLabelColor = priorityLabelCol < 0 ? -1 : m.colorRam[14 * 40 + priorityLabelCol];
   m.mouse.left = false;
   frames(m, 120);
-  check(targetCol >= 0 && heldLabelColor === 3 && m.ram[SYM.CMDPOS + 2] === 0x31,
+  check(targetCol >= 0 && heldLabelColor === MENUTEXT && m.ram[SYM.CMDPOS + 2] === 0x31,
         label + 'default HTML cartridge accepts Priority 1 without flashing its label white');
-  check(labelClickColors.every(c => c === 3),
+  check(labelClickColors.every(c => c === MENUTEXT),
         label + 'priority label never flashes white while the native choice is fired (' + labelClickColors.join(',') + ')');
   check(forwardPaints > 0 && backwardPaints > 0 && whiteLabelWrites === 0,
         label + 'both native paint loops skip priority label cells at instruction granularity (' + forwardPaints + '/' + backwardPaints + '; white writes ' + whiteLabelWrites + ')');
