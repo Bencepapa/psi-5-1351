@@ -1,6 +1,6 @@
 ; =====================================================================
 ; Psi-5 Trading Company (+4D 101%) on EasyFlash.
-; Boot: restore a RAM snapshot taken at the trainer prompt (PC $0CAD), then
+; Boot: restore a RAM snapshot taken at the trainer prompt and resume at its exit ($0DA6), then
 ; serve every file load from the cartridge instead of the Krill loader.
 ; The loader entries $0200 (raw) and $020B (load + unpack) jump to the
 ; resident code in the EasyFlash RAM at $DF00. Files are stored unpacked

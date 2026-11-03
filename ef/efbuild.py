@@ -54,6 +54,11 @@ assert res_sym['RESEND'] <= 0xDFFA    # $DFFA-$DFFF: mouse_rom.asm's variables
 # ---- snapshot image ----
 img = bytearray(open(os.path.join(ROOT, 'tools', SNAP + 'ram.bin'), 'rb').read()[2:])
 assert len(img) == 65536
+if not BRIDGE:      # skip the trainer prompt: resume at its exit (no trainers, $03F6 = 0)
+    assert CPU['pc'] == 0x0CAD and img[0x03F6] == 0
+    assert img[0x0DA6:0x0DAE] == bytes([0xA9, 0x00, 0x8D, 0x11, 0xD0, 0x4C, 0x87, 0x09])
+    CPU['pc'] = 0x0DA6
+    img[0x0400:0x07E8] = b' ' * 1000    # nothing of the trainer screen left to show
 img[0x0200:0x0203] = bytes([0x4C, res_sym['RAWLD'] & 255, res_sym['RAWLD'] >> 8])
 img[0x020B:0x020E] = bytes([0x4C, res_sym['CDLD'] & 255, res_sym['CDLD'] >> 8])
 sp = CPU['sp']
@@ -75,6 +80,8 @@ for line in io.splitlines():
 vic = vic[:47]
 assert len(vic) == 47
 vic[0x11] &= 0x7F       # the read value's bit 7 is the current raster line, not the compare
+if not BRIDGE:
+    vic[0x11] &= 0xEF   # display off: don't flash the trainer screen ($0DA6 blanks it anyway)
 # raster compare: the line the IRQ handler in $0314 expects (the trainer prompt: $99)
 RASTER = {0x8F33: 0x2D, 0x8ECE: 0x9A, 0x8F02: 0xAA}.get(img[0x0314] | img[0x0315] << 8, 0x99)
 
