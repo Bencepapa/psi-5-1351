@@ -334,6 +334,15 @@ Verified in JS (2026-11-03, New UI bridge cartridge):
 
 Open questions: whether anything else reads the menu nodes (the mouse menu-row hover reads the native cursor variables `$0774`, `$4D`, `$3D`, which belong to the interpreter); how the input row's command echo is used by the game (it is part of the Classic look and goes away).
 
+## Ideas (2026-11-04)
+
+- **Message arrival:** when a message arrives the game plays a sound effect. At the same moment the matching count badge in the tab bar should flash (for example a few frames inverted or in another colour), so the player sees which department sent it. Hook: the message queue write at `$C6xx` (the write position `$FFE8+i` grows) or the sound trigger; the tab bar already redraws when a count changes (`NUSIG`), so the flash only needs a short timer.
+- **Prompts beyond two rows:** the original squeezed every command into the two menu rows (the echo line on row 13, the choices on row 14), because that was all the space it had. The New UI can use other areas, for example the text area for a small form: Fire with the weapon, target and priority side by side, Assign with the robodroid count next to the damaged device. Most likely limited by memory.
+- **Where the memory can come from:**
+  - On the cartridge, RAM is the limit, not storage: only 23 of the 64 EasyFlash banks are used, so about 650 KB of ROM is free. New UI code, texts, tables and screen layouts can live in ROM and be copied to RAM only while needed, so nothing has to be compressed for the CRT.
+  - Short tunes and sound data that sit in RAM permanently could move to ROM as well, if the player can be pointed at a copy made just before playing. Compressing them helps the D64 (where there is no ROM), but only after measuring how big they are: the music player is at `$C406`, its data has not been mapped yet.
+  - The ~2 KB of menu machinery from the analysis above.
+
 ## Startup choice and settings
 
 The choice between the two UIs comes right after crew selection, not in a boot menu. After Accept, and before the bridge files load, the player sees:
