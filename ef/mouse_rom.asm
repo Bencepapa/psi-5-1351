@@ -784,8 +784,20 @@ MJN1:   LDA $DC00
         ORA #$11        ; the mouse's own lines are not a joystick
         LDX BTN         ; outside menus a held button is fire
         BEQ MJNPEND
+;#if NEWUI
+        LDX MENUON
+        BNE MJMEN
+        LDX PROW        ; home: rows 13-14 are the tab bar and the status line, not fire
+        CPX #13
+        BEQ MJNOFIRE
+        CPX #14
+        BEQ MJNOFIRE
+        BNE MJFIRE
+MJMEN:
+;#else
         LDX MENUON
         BEQ MJFIRE
+;#endif
         LDA PROW
         CMP #14
         BNE MJNOFIRE
@@ -1240,12 +1252,16 @@ SV1:    LDA $2D,Y
 NUSCR   = $5208         ; row 13
 NUCOL   = $DA08
 NUDEPTH = $37
+NUTC    = $DBE9         ; the tab bar's text colour, and the row's checksum ($DBEA low,
+NUCKL   = $DBEA         ; $DBEB high nibble): colour RAM past the screen, 4 bits each
+NUCKH   = $DBEB
 ; tab order W S N E R: letter, name lengths, colour, message queue ($39 order N W S R E)
 NUKEYS: .byte 'W','S','N','E','R'
 NULEN:  .byte 4,4,3,3,3
 NUFLEN: .byte 7,8,10,11,6
 NUFOFF: .byte 0,11,22,33,44
-NUCLR:  .byte 14,2,4,12,5
+NUCLR:  .byte 6,2,4,12,5
+NUTXT:  .byte 7,7,7,7,7        ; menu text on each department colour (0 = black text, white names)
 NUQ:    .byte 1,2,0,4,3
 NUQB:   .byte 8,16,0,32,24      ; the queues' fixed starts ($EC39+i), in NUQ order
 NUNAME: .byte 'W','e','a','p','S','c','a','n','N','a','v',' ','E','n','g',' ','R','e','p',' '
@@ -1255,7 +1271,7 @@ NUFULL: .byte 'W','e','a','p','o','n','s',' ',' ',' ',' '
         .byte 'E','n','g','i','n','e','e','r','i','n','g'
         .byte 'R','e','p','a','i','r',' ',' ',' ',' ',' '
 NUQUIT: .byte 'Q','u','i','t'
-NUGL:   .byte $02,$5F,$B8,$1D,$9A,$CC   ; codes for 1 2 3 4 5 + (blank or duplicate glyphs)
+NUGL:   .byte $B8,$B9,$BA,$BB,$BC,$CC   ; codes for 1 2 3 4 5 +: never shown, read or written by the game
 NUGLYPH:
         .byte $7E,$EF,$CF,$EF,$EF,$C7,$FF,$7E   ; 1
         .byte $7E,$C7,$F7,$C7,$DF,$C7,$FF,$7E   ; 2
@@ -1279,6 +1295,31 @@ NUACTV: LDX #$FF
         LDA $2D
         JMP NUTABOF
 NUAC9:  RTS
+
+; A = the XOR of row 13's 40 characters; TMP3 = the stored one
+NUCKSUM:LDA NUCKH
+        ASL A
+        ASL A
+        ASL A
+        ASL A
+        STA TMP3
+        LDA NUCKL
+        AND #$0F
+        ORA TMP3
+        STA TMP3
+        LDA #0
+        LDX #39
+NUCK1:  EOR NUSCR,X
+        DEX
+        BPL NUCK1
+        RTS
+
+; A = the colour of the open department's name and the counts: white, black on Repair's green
+NUACOL: LDA NUTC
+        AND #$0F
+        BEQ NUACX
+        LDA #1
+NUACX:  RTS
 
 ; X = tab -> A = its pending messages (X kept)
 NUCOUNT:LDY NUQ,X
@@ -1314,39 +1355,45 @@ NUF9:   RTS
 NUVIS:  LDX #7                  ; the glyphs, every frame (loads rewrite parts of the charset)
 NUVG:
         LDA NUGLYPH+0,X
-        STA $5810,X
-        LDA NUGLYPH+8,X
-        STA $5AF8,X
-        LDA NUGLYPH+16,X
         STA $5DC0,X
+        LDA NUGLYPH+8,X
+        STA $5DC8,X
+        LDA NUGLYPH+16,X
+        STA $5DD0,X
         LDA NUGLYPH+24,X
-        STA $58E8,X
+        STA $5DD8,X
         LDA NUGLYPH+32,X
-        STA $5CD0,X
+        STA $5DE0,X
         LDA NUGLYPH+40,X
         STA $5E60,X
         DEX
         BPL NUVG
 NUVG9:  JSR NUACTV
         STX TMP
-        LDA #6                  ; menu rows: department colour, blue otherwise
+        LDA #11                 ; menu rows: department colour, dark grey otherwise
+        LDY #7
         CPX #5
         BCS NUVB
         LDA NUCLR,X
+        LDY NUTXT,X
 NUVB:   STA $8EF3
-        LDX #39                 ; cyan menu text becomes yellow
+        STY $94AF               ; the game's own menu text colour
+        STY TMP2
+        LDX #39                 ; cyan or yellow menu text in the department's text colour
 NUVC:   LDA $DA30,X
         AND #$0F
         CMP #3
+        BEQ NUVC1
+        CMP #7
         BNE NUVD
-        LDA #7
+NUVC1:  LDA TMP2
         STA $DA30,X
 NUVD:   DEX
         BPL NUVC
         LDA NUDEPTH
         CMP #2
         BCS NUPROMPT
-        LDA NUDEPTH             ; redraw the bar only when it would change
+        LDA NUDEPTH             ; redraw when the bar would change, or the game wrote over it
         ASL A
         ASL A
         ASL A
@@ -1363,16 +1410,26 @@ NUS1:   JSR NUCOUNT
         BPL NUS1
         LDA TMP3
         CMP NUSIG
+        BNE NUS2
+        JSR NUCKSUM
+        CMP TMP3
         BEQ NUS9
+NUS2:   LDA TMP3
         STA NUSIG
         JSR NUBAR
-        JMP NUS9
+        JSR NUCKSUM             ; remember the drawn row
+        STA NUCKL
+        LSR A
+        LSR A
+        LSR A
+        LSR A
+        STA NUCKH
 NUS9:   LDA NUDEPTH
         BNE NUS9R
         JMP NUSTAT
 NUS9R:  RTS
 NUPROMPT:
-        LDA #$FF
+        LDA #$FF                ; back at depth 0/1 the bar is drawn again
         STA NUSIG
         LDA #$20
         STA NUSCR
@@ -1405,10 +1462,17 @@ NUEOFF: .byte 0,6,12,18,24
 NUECHO: .byte 'W','E','A','P','.','-','S','C','A','N','.','-','N','A','V','.','-',' '
         .byte 'E','N','G','.','-',' ','R','E','P','.','-',' '
 
-NUBAR:  LDX #39
+NUBAR:  LDX TMP                 ; text colours of this department
+        LDA #7
+        CPX #5
+        BCS NUBC
+        LDA NUTXT,X
+NUBC:   STA NUTC
+        LDX #39
 NUB0:   LDA #$20
         STA NUSCR,X
-        LDA #7
+        LDA NUTC
+        AND #$0F
         STA NUCOL,X
         DEX
         BPL NUB0
@@ -1426,7 +1490,7 @@ NUBT:   PHA
         BPL NUBT
         JSR NUGLYC
         STA NUSCR+1
-        LDA #1
+        JSR NUACOL
         STA NUCOL+1
         LDA #3
         STA TMP2
@@ -1448,7 +1512,7 @@ NUB1:   LDX TMP3
         TAX
 NUB2:   LDA NUFULL,X
         STA NUSCR,Y
-        LDA #1
+        JSR NUACOL
         STA NUCOL,Y
         INX
         INY
@@ -1463,7 +1527,7 @@ NUB2:   LDA NUFULL,X
         CLC
         ADC #13
         STA TMP2
-        JMP NUB6
+        JMP NUBSEP
 NUB5:   LDY TMP2                ; compact: short name and count
         LDA NULEN,X
         PHA
@@ -1485,6 +1549,12 @@ NUB3:   LDA NUNAME,X
         INY
         INY
         STY TMP2
+NUBSEP: LDY TMP2                ; a light grey bar between the tabs
+        DEY
+        LDA #$7C
+        STA NUSCR,Y
+        LDA #15
+        STA NUCOL,Y
 NUB6:   INC TMP3
         LDA TMP3
         CMP #5
@@ -1511,7 +1581,7 @@ NUBCNT: TYA
         TAY
         TXA
         STA NUSCR,Y
-        LDA #1
+        JSR NUACOL
         STA NUCOL,Y
         RTS
 

@@ -246,3 +246,11 @@ Static analysis of the RAM image at the bridge (`tools/t_b1.bin`, taken from the
 
 - The renderer copies a ship's frame into shared sprite buffers (pointers 0-3, `$4000`/`$4040`/`$4080`/`$40C0`); no type has a fixed sprite block. Showing ships in the text area needs own sprite blocks in the VIC bank (64 bytes each) and a copy of a frame. Details: `.zen/map_findings2.md`.
 
+## The bridge charset at `$5800` also holds data
+
+Some characters that never appear on the text screen are data, not free glyphs (found when the New UI's count glyphs broke the Repair list):
+- code `$02` (`$5810-$5817`) is read by game logic at `$A85A`, `$B520`, `$B8CA`, and code `$1D` (`$58E8`) at `$B7DD`;
+- `$5CAF-$5CD6` is the `Processing Command` line that `$8833` copies to row 14 (codes `$96`, `$9A`);
+- the game rewrites codes 2-7, `$19`, `$1A`, `$1C` (gauges) and `$7E` (the blinking cursor).
+A code is only free if the game neither shows it nor reads or writes its 8 bytes: a JS tour of every department's screens and commands found `$B8-$BC`, `$C9-$CE`, `$85`, `$86`, `$A3`, `$B3`, `$B4`, `$BE`, `$BF`, `$C1`, `$C5`, `$D8`, `$D9`, `$EE` (plus some printable characters that messages may use). The New UI uses `$B8-$BC` and `$CC`.
+

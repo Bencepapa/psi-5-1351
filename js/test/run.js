@@ -806,11 +806,11 @@ function bridgeSmoke(dma) {
 function newUiTabBarTests() {
   if (!process.env.PSI5_NEWUI) return;
   const tabs = [
-    ['W', 'Weap', 'Weapons', 14, 1], ['S', 'Scan', 'Scanning', 2, 2],
+    ['W', 'Weap', 'Weapons', 6, 1], ['S', 'Scan', 'Scanning', 2, 2],
     ['N', 'Nav', 'Navigation', 4, 0], ['E', 'Eng', 'Engineering', 12, 4],
     ['R', 'Rep', 'Repair', 5, 3]
   ];
-  const glyphs = [0x20, 0x02, 0x5F, 0xB8, 0x1D, 0x9A, 0xCC];
+  const glyphs = [0x20, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xCC];
   for (const dma of [false, true]) {
     const label = 'New UI tabs ' + (dma ? 'm.dma' : 'page speed') + ': ';
     const m = boot(dma, 'bridge');
@@ -819,8 +819,8 @@ function newUiTabBarTests() {
     const row = () => String.fromCharCode(...m.ram.slice(0x5000 + 13 * 40, 0x5000 + 14 * 40));
     // The bridge can initially be in Acknowledge; return through the native menu.
     clickPointer(m, 14, 39, true);
-    const eng = findRowChar(m, 14, 0x45);
-    if (eng >= 0) clickPointer(m, 14, eng);
+    const eng = row().indexOf('Eng');   // home: the tab bar (row 14 is the status line)
+    if (eng >= 0) clickPointer(m, 13, eng);
     frames(m, 40);
     const full = row().indexOf('Engineering');
     check(m.ram[0x37] === 1 && m.ram[0x2D] === 0x45 && full >= 0 &&
