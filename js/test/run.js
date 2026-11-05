@@ -846,6 +846,8 @@ function newUiTabBarTests() {
       check(m.ram[0x37] === 1 && m.ram[0x2D] === letter.charCodeAt(0) && m.ram[0x8EF3] === colour,
             label + 'click opens ' + name + ' with department colour ' + colour +
             ' (depth ' + m.ram[0x37] + ', department ' + m.ram[0x2D] + ', colour ' + m.ram[0x8EF3] + ')');
+      check(!String.fromCharCode(...m.ram.slice(0x5230, 0x5258)).includes('Rank'),
+            label + name + ' offers no explicit Rank command');
       const start = row().indexOf(name), pending = m.ram[0xFFE8 + queue] - queue * 8;
       const actual = start < 0 ? -1 : rowChar(m, 13, start + name.length);
       check(pending >= 0 && start >= 0 && actual === glyphs[Math.min(pending, 9)],
@@ -893,6 +895,19 @@ function newUiTabBarTests() {
                                            ['N', 'A', 'Accel'], ['S', 'E', 'Examine']]) {
         m.loadState(homeState);
         const mode = keyboard ? 'keyboard' : 'mouse';
+        const step = m.cpu.step, write = m.write;
+        let expectedPriority = null, dispatchedPriority = null, priorityPainted = false;
+        m.cpu.step = function () {
+          if (!m.cartMode && this.pc === 0x836B)
+            expectedPriority = 0x30 + Math.min(m.ram[0x1A] + 1, 8);
+          if (!m.cartMode && this.pc === 0x8A4D && expectedPriority !== null)
+            dispatchedPriority = m.ram[0x2D + m.ram[0x37]];
+          return step.call(this);
+        };
+        m.write = function (address, value) {
+          if (address === 0x5231 && value === 0x70) priorityPainted = true;
+          return write.call(this, address, value);
+        };
         choose(dept, keyboard, 13);
         choose(command, keyboard);
         check(m.ram[0x37] >= 2 && row().startsWith(' ' + title),
@@ -921,6 +936,10 @@ function newUiTabBarTests() {
         }
         check(steps > 0 && steps < 8 && (m.ram[0x37] <= 1 || title === 'Assign' && m.ram[0x37] === 2),
               label + mode + ' ' + title + ' accepts its available arguments (' + steps + ' arguments)');
+        check(!priorityPainted && (title !== 'Fire' && title !== 'Examine' ||
+              expectedPriority !== null && dispatchedPriority === expectedPriority),
+              label + mode + ' ' + title + ' dispatches with automatic last priority and never paints its prompt');
+        m.cpu.step = step; m.write = write;
       }
     }
     m.loadState(homeState);
@@ -939,8 +958,72 @@ const bridgeGames = [false, true].map(bridgeSmoke);
 for (const dma of [false, true]) frontendMouseRegression(dma);
 const games = [false, true].map(playthrough);
 
+// Compare the replaced builder with the original interpreter, not a JS model.
+function automaticPriorityTests() {
+  if (!process.env.PSI5_NEWUI) return;
+  for (const dma of [false, true]) {
+    const m = boot(dma, 'bridge');
+    untilAt(m, SYM.GETKEY, 1200);
+    const home = m.saveState();
+    for (const record of ['WF1MA', 'SEA', 'RA1A']) {
+      for (const count of [0, 1, 7, 8]) {
+        m.loadState(home);
+        const dept = 'NWSRE'.indexOf(record[0]);
+        const realLo = m.ram[0x5C62 + dept], realHi = m.ram[0x5C6C + dept];
+        const list = realLo | realHi << 8;
+        // A real type-4 node with the standard leaf description/destination.
+        m.ram.set([0xC4, 0xA7, 0xBB, 0x1F, 0xBB], 0x7000);
+        m.ram[0x0C] = 0; m.ram[0x0D] = 0x70;
+        m.ram[0x02] = 0xC4; m.ram[0x37] = record.length;
+        m.ram.set(Buffer.from(record), 0x2D);
+        m.ram[0x38] = record.charCodeAt(0); m.ram[0x39] = dept;
+        // Feed the native list collector a controlled list in low RAM.
+        m.ram[0x5C62 + dept] = 0; m.ram[0x5C6C + dept] = 0x71;
+        m.ram[0x5CDE + dept] = 0;
+        m.ram.fill(0x20, 0x7100, 0x7300);
+        for (let i = 0; i < count; i++) m.ram[0x7100 + i * 40] = 0x41 + i;
+        m.cpu.x = dept; m.cpu.y = dept; m.cpu.pc = 0x8368;
+        const start = m.saveState(), patched = m.ram.slice(0x8368, 0x8373);
+        let flashed = false;
+        const write = m.write;
+        m.write = function(a, v) {
+          if (a === 0x5231 && v === 0x70) flashed = true;
+          return write.call(this, a, v);
+        };
+        const autoHit = untilAt(m, 0x8A4D, 100);
+        const autoRecord = Array.from(m.ram.slice(0x2D, 0x2D + record.length + 1));
+        m.write = write;
+        m.ram[0x5C62 + dept] = realLo; m.ram[0x5C6C + dept] = realHi;
+        const autoExecuted = untilAt(m, 0x8AA2, 100);
+        const autoList = Array.from(m.ram.slice(list, list + 320));
+        m.loadState(start);
+        m.ram.set([0x20,0xD4,0x94,0xE0,0x08,0xF0,0x08,0x8A,0x69,0x31,0x95], 0x8368);
+        untilAt(m, SYM.GETKEY, 100);
+        const end = Math.min(count + 1, 8) + 0x30;
+        m.ram[0x03CA] = end; m.ram[0x4E] = 1;
+        const nativeHit = untilAt(m, 0x8A4D, 100);
+        const nativeRecord = Array.from(m.ram.slice(0x2D, 0x2D + record.length + 1));
+        m.ram[0x5C62 + dept] = realLo; m.ram[0x5C6C + dept] = realHi;
+        const nativeExecuted = untilAt(m, 0x8AA2, 100);
+        const nativeList = Array.from(m.ram.slice(list, list + 320));
+        check(autoHit && nativeHit && autoExecuted && nativeExecuted && !flashed &&
+              JSON.stringify(autoList) === JSON.stringify(nativeList) &&
+              JSON.stringify(autoRecord) === JSON.stringify(nativeRecord) &&
+              autoRecord[record.length] === end,
+              'automatic priority ' + record + ' list ' + count + ' dma ' + dma +
+              ': original dispatch record and resulting list, last position, no priority paint (' + autoRecord + '/' + nativeRecord + ')');
+        m.ram.set(patched, 0x8368);
+      }
+    }
+  }
+}
+
 function bridgePriorityRegression(m, dma) {
   const label = (dma ? 'bridge m.dma' : 'bridge page speed') + ': ';
+  if (process.env.PSI5_NEWUI) {
+    if (!dma) automaticPriorityTests();
+    return;
+  }
   const originalState = m.saveState();
   clickPointer(m, 14, 39, true);
   const menuRow = process.env.PSI5_NEWUI ? 13 : 14;   // New UI: home has the tab bar, row 14 is the status line

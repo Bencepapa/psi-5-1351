@@ -241,6 +241,13 @@ NUIBRIDGE:              LDA #$20
                 # Suppress the root cursor too, retaining native colour setup.
                 mem[0x831C - start:0x8321 - start] = bytes([
                     0x20, labels['NUINIT'] & 255, labels['NUINIT'] >> 8, 0xEA, 0xEA])
+                # Replace the type-4 priority builder itself; other node types
+                # branch to $838F and never enter these now-unused instructions.
+                assert bytes(mem[0x8368 - start:0x836B - start]) == bytes([0x20, 0xD4, 0x94])
+                mem[0x8368 - start:0x8373 - start] = bytes([
+                    0x20, 0xD4, 0x94, 0xA2, 0x15,
+                    0x20, ram_sym['ROMCALL'] & 255, ram_sym['ROMCALL'] >> 8,
+                    0x4C, 0x14, 0x88])
                 for address, target, old in (
                         (0x8795, labels['NUEGATE'], bytes([0xA2, 0, 0xA4])),
                         (0x9B91, labels['NUBACK'], bytes([0xA4, 0x37, 0xBE]))):

@@ -56,6 +56,18 @@ FLASHLEN = 40            ; frames
         JMP MTOP
         JMP MXOR
         JMP MREST
+;#if NEWUI
+        JMP NUAUTO      ; $8015: interpreter priority completion
+NUAUTO: LDA $1A         ; same cap and insertion position as native type-4 node
+        CMP #8
+        BCC NUAADD
+        LDA #7
+NUAADD: CLC
+        ADC #$31
+        LDX $37
+        STA $2D,X
+        RTS
+;#endif
 ; ---- IRQ: pots, pointer ----
 ;#if NEWUI
 ; joystick in port 2, no 1351: 4 pixels across and 3 lines down per frame, as the mouse is clamped
