@@ -219,3 +219,13 @@ Static analysis of the RAM image at the bridge (`tools/t_b1.bin`, taken from the
 | Speed | `$73F4` current, `$73E0` requested | digit characters (`'0'`-`'8'`); `$0701` is the binary movement index |
 | Pending messages | write position `$FFE8+i`, queue start `$EC39+i` (0, 8, 16, 24, 32) | i = N W S R E = 0-4 (the `$39` order); count = position - start |
 
+## Route and encounter map (found by Codex, 2026-11-05)
+
+- Progress: `$4F-$51` fixed point; `$51` is the position 0-50 along the route (arrival at 50); `$0701` is the movement index.
+- Paths: courses A-E are five alternative paths (shortest, medium port/starboard, full port/starboard).
+- Encounter map: `$3480-$3579` and `$357A-$3673` are two 250-byte planes (low/high) of 250 16-bit encounter masks, index = 50 x path + position. From the unpacked `di`; `ma` supplies scenario-dependent replacements.
+- Remaining-time curves: eleven 50-byte curves at `$3674-$3899`, addressed through `$5607`/`$5613`; the distance display derives from them. `$3965` is the time allowance.
+- Encounters: `$B0A9-$B1B9` reads the current mask and allocates targets; the bits select types through `$3C61`. Placement is authored; the pseudorandom state `$3A09`/`$3A0A` affects order and attributes. Random incidents/damage are separate.
+- RSK: `$ADAF-$AE27` counts encounter bits over the current position and up to five ahead and shows the total; future ships are not identified. Active objects: 26-slot parallel arrays (type, birth progress, status, behaviour, identification).
+- Details: `.zen/map_findings.md` (not tracked).
+
