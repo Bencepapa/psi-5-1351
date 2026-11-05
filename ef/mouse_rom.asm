@@ -88,9 +88,9 @@ MPJ2:   STX XP
         DEX
         DEX
         DEX
-        CPX #104
+        CPX #110
         BCS MPJ3
-        LDX #104
+        LDX #110
 MPJ3:   TYA
         AND #2          ; down
         BNE MPJ4
@@ -141,15 +141,9 @@ MP2:    STA XP
         EOR #$FF        ; pot Y grows upwards
         SEC
         ADC YP
-;#if NEWUI
-        CMP #104
-        BCS MP5
-        LDA #104
-;#else
         CMP #110        ; not above the split (the sprite is set at raster $9A-$9E)
         BCS MP5
         LDA #110
-;#endif
 MP5:    CMP #200
         BCC MP6
         LDA #199
@@ -161,16 +155,7 @@ MP6:    STA YP
         STA CROW
         TXA
         CLC
-;#if NEWUI
-        ADC #47
-        STA SPY
-        LDA $D011
-        AND #7
-        CLC
-        ADC SPY
-;#else
         ADC #50
-;#endif
         STA SPY
         LDA #0          ; sprite X = 2*XP+24
         STA SPM
@@ -627,20 +612,6 @@ COLRD:  JSR ROWADR
         RTS
 
 ; ---- text split: sprite 7 becomes the pointer ----
-;#if NEWUI
-; Early split: ROM does only the less urgent X/high-bit/colour work.
-; RAM has already installed Y, shape, mode and enable before the Y comparison.
-MSPR:   LDA SPX
-        STA $D00E
-        LDA $D010
-        AND #$7F
-        ORA SPM
-        STA $D010
-        LDA #PTRCOL
-        STA $D02E
-        LDA $D011
-        RTS
-;#else
 MSPR:   BIT INTXT       ; only with the arrow in its block
         BVC MS9
         LDA INTXT
@@ -667,33 +638,17 @@ MSPR:   BIT INTXT       ; only with the arrow in its block
         ORA #$80
         STA $D015
 MS9:    RTS
-;#endif
-;#if NEWUI
-MS9:    RTS
-;#endif
 ; ---- line $82: the arrow goes into its block ----
 MXOR:   LDA MOUSEON
         BEQ MS9
         LDA SHSIGA
         CMP #SHSIG
         BNE MS9
-;#if NEWUI
-        LDA #SHBLOCK
-        STA $53FF
-        LDA #0
-        STA $D025       ; ships are monochrome; shared multicolour is unused
-;#endif
         LDA #$40
         STA INTXT
         JMP SHPUT
 ; ---- top of the screen: sprite 7 back to the game ----
-;#if NEWUI
-MTOP:   LDA #7
-        STA $57FF
-        BIT INTXT
-;#else
 MTOP:   BIT INTXT
-;#endif
         BVC MT1
         JSR SHRST
 MT1:    BIT INTXT
@@ -1297,7 +1252,7 @@ SV1:    LDA $2D,Y
 NUSCR   = $5208         ; row 13
 NUCOL   = $DA08
 NUDEPTH = $37
-NUTC    = $DBE9         ; the tab bar's text colour, and the row's checksum ($DBEA low,
+NUTC    = $DBF1         ; the tab bar's text colour, and the row's checksum ($DBEA low,
 NUCKL   = $DBEA         ; $DBEB high nibble): colour RAM past the screen, 4 bits each
 NUCKH   = $DBEB
 NUCNTS  = $DBEC         ; the five tabs' counts ($DBEC-$DBF0, low nibbles)
@@ -2038,7 +1993,7 @@ ROWHI:  .byte 0,0,0,0,0,0,0,1
 
 ; the arrow, multicolour (white, black outline): tip at the sprite's top left corner
 SHAPE:
-        .byte $80,$00,$00,$60,$00,$00,$64,$00,$00,$69,$00,$00
+        .byte $40,$00,$00,$50,$00,$00,$64,$00,$00,$69,$00,$00
         .byte $6A,$40,$00,$6A,$90,$00,$6A,$A4,$00,$6A,$54,$00
         .byte $66,$40,$00,$51,$90,$00,$41,$90,$00,$00,$50,$00
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00

@@ -150,31 +150,6 @@ if MOUSE:
              0xB920: (STA15, ram_sym['WRE']),
              0x9B85: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU']),
              0x86AD: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU'])}
-    if NEWUI:
-        # Snapshot repair still uses HOOKS below; hook() restores the late JMP.
-        # Ships use monochrome only: $D01C can be assigned directly.
-        # INTXT has only bits 7/6/0; preserve the pending-update meaning with $C1.
-        early_src = """* = $8831
-        CLD
-        BIT INTXT
-        BVC DONE
-        LDA #$C1
-        STA INTXT
-        LDA #$82
-        STA $57FF
-        LDA SPY
-        STA $D00F
-        LDA #$80
-        STA $D01C
-        LDA $D015
-        ORA #$80
-        STA $D015
-        JMP TSPR
-DONE:   LDA $D011
-        RTS
-"""
-        early, _, _ = assemble(''.join(f'{k} = ${v:04X}\n' for k, v in ram_sym.items()) + early_src)
-        assert min(early) == 0x8831 and max(early) <= 0x8866
     hooked = dict.fromkeys(HOOKS, 0)
     replay_old = b'Same_crew_&_course New_crew_&_course ' + bytes([255, 3, 0xD3, 0xCE, 0x14, 0x2E, 0xBE, 0x40, 0xBE, 0xA7, 0xBB])
     replay_short = (b'Same New ' + replay_old[-11:]).ljust(len(replay_old), b'\0')
@@ -227,15 +202,6 @@ DONE:   LDA $D011
             i = 0x882E - start  # no Processing delay: straight to the executor ($8831-$8866 become free)
             if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == bytes([0xA0, 0x27, 0xB9]):
                 mem[i:i + 3] = bytes([0x4C, 0x67, 0x88])
-            i = 0x8ECE - start
-            if 0 <= i and i + 4 <= len(mem) and bytes(mem[i:i + 4]) == bytes([0xD8, 0xAD, 0x11, 0xD0]):
-                mem[i:i + 4] = bytes([0x20, 0x31, 0x88, 0xEA])
-                for a, v in early.items():
-                    assert 0 <= a - start < len(mem)
-                    mem[a - start] = v
-            i = 0x8EFF - start
-            if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == bytes([0x4C, ram_sym['TSPR'] & 255, ram_sym['TSPR'] >> 8]):
-                mem[i:i + 3] = bytes([0x4C, 0x95, 0x8F])
 
 
     if BRIDGE:      # hooks of the cartridge the snapshot came from point to the old RAM part
