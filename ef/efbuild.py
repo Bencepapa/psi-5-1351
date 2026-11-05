@@ -199,9 +199,55 @@ if MOUSE:
             i = 0x94AE - start
             if 0 <= i and i + 2 <= len(mem) and bytes(mem[i:i + 2]) == bytes([0xA9, 0x03]):
                 mem[i + 1] = 0x07
-            i = 0x882E - start  # no Processing delay: straight to the executor ($8831-$8866 become free)
-            if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == bytes([0xA0, 0x27, 0xB9]):
+            i = 0x882B - start  # skip highlight cleanup and Processing: reclaim $882E-$8866
+            if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == bytes([0x20, 0xAC, 0x94]):
                 mem[i:i + 3] = bytes([0x4C, 0x67, 0x88])
+                # Bridge-only echo gates in the removed Processing delay. The
+                # native interpreter keeps command offsets, with depth 0 empty.
+                code, labels, _ = assemble("""
+                        *= $882E
+NUROOT:                 LDA $0403
+                        CMP #$E8
+NUR9:                   RTS
+NUEGATE:                LDY $37
+                        BNE NUENATIVE
+                        JSR NUROOT
+                        BNE NUENATIVE
+                        TYA
+                        JMP $87C5
+NUENATIVE:              LDX $37         ; native BEQ tests depth; deeper X is replaced by its offset
+                        JMP $8799
+NUBACK:                 LDY $37
+                        JSR NUROOT
+                        BNE NUBNATIVE
+                        CPY #2
+                        BCC NUB9
+NUBNATIVE:              LDX $0417,Y
+                        JMP $9B96
+NUB9:                   RTS
+NUINIT:                 LDA $0C         ; the new root, before its stack entry is updated
+                        CMP #$89        ; end-of-mission root ($BE89) retains its cursor
+                        BNE NUIBRIDGE
+                        LDA #$7E
+                        .byte $2C       ; BIT abs skips the bridge LDA immediate
+NUIBRIDGE:              LDA #$20
+                        STA $5209,X
+                        RTS
+""")
+                assert max(code) <= 0x8866
+                for address, value in code.items():
+                    mem[address - start] = value
+                # The bridge and end-of-mission roots are $BEE8/$BE89.
+                # Suppress the root cursor too, retaining native colour setup.
+                mem[0x831C - start:0x8321 - start] = bytes([
+                    0x20, labels['NUINIT'] & 255, labels['NUINIT'] >> 8, 0xEA, 0xEA])
+                for address, target, old in (
+                        (0x8795, labels['NUEGATE'], bytes([0xA2, 0, 0xA4])),
+                        (0x9B91, labels['NUBACK'], bytes([0xA4, 0x37, 0xBE]))):
+                    offset = address - start
+                    assert bytes(mem[offset:offset + 3]) == old
+                    mem[offset:offset + 3] = bytes([0x4C, target & 255, target >> 8])
+
 
 
     if BRIDGE:      # hooks of the cartridge the snapshot came from point to the old RAM part

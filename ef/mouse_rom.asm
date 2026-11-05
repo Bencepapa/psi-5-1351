@@ -1454,23 +1454,13 @@ NUPC:   STA NUCOL,X
         BPL NUPC
         LDA #$20
         STA NUSCR
-        LDX TMP                 ; a prompt: the game only appends to its echo line, so put
-        BMI NUE2                ; the department's prefix back and clear the bar after the cursor
-        LDA NUEOFF,X
-        TAX
-        LDY #0
-NUE1:   LDA NUECHO,X
-        STA NUSCR+1,Y
-        INX
-        INY
-        CPY #6
-        BNE NUE1
-        LDX TMP
-        CPX #2
-        BCS NUE2
-        LDA #$20                ; WEAP.- and SCAN.- : the word starts one cell later
-        STA NUSCR+7
-NUE2:   LDX #39
+        LDY NUDEPTH             ; the native echo leaves a separator before its cursor
+        DEY
+        LDX $0417,Y
+        DEX
+        LDA #$20
+        STA NUSCR+1,X
+        LDX #39                 ; clear the old bar after the native command cursor
 NUE3:   LDA NUSCR,X
         CMP #$7E                ; the input cursor
         BEQ NUE9
@@ -1479,9 +1469,6 @@ NUE3:   LDA NUSCR,X
         DEX
         BNE NUE3
 NUE9:   RTS
-NUEOFF: .byte 0,6,12,18,24
-NUECHO: .byte 'W','E','A','P','.','-','S','C','A','N','.','-','N','A','V','.','-',' '
-        .byte 'E','N','G','.','-',' ','R','E','P','.','-',' '
 
 NUBAR:  LDX TMP                 ; text colours of this department
         LDA #7

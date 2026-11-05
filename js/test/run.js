@@ -817,6 +817,14 @@ function newUiTabBarTests() {
     check(untilAt(m, SYM.GETKEY, 1200), label + 'fresh bridge boot reaches input');
     frames(m, 200);
     const row = () => String.fromCharCode(...m.ram.slice(0x5000 + 13 * 40, 0x5000 + 14 * 40));
+    const runFrame = m.runFrame;
+    const echoFrames = [];
+    m.runFrame = function (...args) {
+      const result = runFrame.apply(this, args);
+      if (this.ram[0x37] <= 1 && /WEAP\.-|NAV\.-|ENG\.-|SCAN\.-|REP\.-|Acknowledge|~/.test(row()))
+        echoFrames.push([this.frame, row()]);
+      return result;
+    };
     // The bridge can initially be in Acknowledge; return through the native menu.
     clickPointer(m, 14, 39, true);
     const eng = row().indexOf('Eng');   // home: the tab bar (row 14 is the status line)
@@ -848,16 +856,81 @@ function newUiTabBarTests() {
           label + '? opens Acknowledge (depth ' + m.ram[0x37] + ', department ' + m.ram[0x2D] + ')');
     clickPointer(m, 13, 39); frames(m, 40);
     check(m.ram[0x37] === 0, label + 'Acknowledge arrow returns to main menu');
+    check(echoFrames.length === 0, label + 'every tab-switch frame has no native echo or cursor (' + JSON.stringify(echoFrames.slice(0, 3)) + ')');
+    m.runFrame = runFrame;
+    const homeState = m.saveState();
     const weapons = row().indexOf('Weap');
     if (weapons >= 0) clickPointer(m, 13, weapons);
     const fire = findRowChar(m, 14, 0x46);
     if (fire >= 0) clickPointer(m, 14, fire);
     frames(m, 40);
     const cursor = findRowChar(m, 13, 0x7E);
-    check(m.ram[0x37] > 1 && row().startsWith(' WEAP.- Fire') && cursor >= 11 &&
+    check(m.ram[0x37] > 1 && row().startsWith(' Fire ~') && cursor === 6 &&
           Array.from(m.ram.slice(0x5000 + 13 * 40 + cursor + 1, 0x5000 + 14 * 40)).every(c => c === 0x20),
           label + 'Fire prompt keeps native echo and clears the bar after cursor (row ' + JSON.stringify(row()) + ')');
     snap(m, 'newui-tabs-' + (dma ? 'dma' : 'plain') + '-prompt');
+    // Exercise the native argument stack through both input paths.
+    const matrix = {};
+    for (const match of fs.readFileSync(path.join(ROOT, 'src/app.js'), 'utf8')
+         .matchAll(/(Key[A-Z]|Digit[0-9]|Backspace): \[(\d), (\d)\]/g))
+      matrix[match[1]] = [+match[2], +match[3]];
+    const choose = (letter, keyboard, menuRow = 14) => {
+      if (keyboard) {
+        const key = matrix[letter === '\x14' ? 'Backspace' :
+                           (/[0-9]/.test(letter) ? 'Digit' : 'Key') + letter];
+        if (!key) return false;
+        m.setKey(...key, true); frames(m, 4);
+        m.setKey(...key, false); frames(m, 120);
+        return true;
+      }
+      const col = findRowChar(m, menuRow, letter.charCodeAt(0));
+      if (col < 0) return false;
+      clickPointer(m, menuRow, col);
+      return true;
+    };
+    for (const keyboard of [false, true]) {
+      for (const [dept, command, title] of [['W', 'F', 'Fire'], ['R', 'A', 'Assign'],
+                                           ['N', 'A', 'Accel'], ['S', 'E', 'Examine']]) {
+        m.loadState(homeState);
+        const mode = keyboard ? 'keyboard' : 'mouse';
+        choose(dept, keyboard, 13);
+        choose(command, keyboard);
+        check(m.ram[0x37] >= 2 && row().startsWith(' ' + title),
+              label + mode + ' ' + title + ' starts without a department prefix (' + row() + ')');
+        let steps = 0;
+        while (m.ram[0x37] >= 2 && steps < 8) {
+          const before = row().slice(0, row().indexOf('~'));
+          // The first offered key is a valid argument (count/weapon/target/etc.).
+          let node = m.ram[0x0C] | m.ram[0x0D] << 8, end = node;
+          while (end < node + 256 && m.ram[end] !== 0xFF) end++;
+          const key = title === 'Fire' && steps === 0 ? '1' :
+                      String.fromCharCode(m.ram[end + 2] & 0x7F);
+          if (key === '\x14') {
+            // This undamaged bridge has no repair devices to assign to.
+            if (keyboard) choose(key, true);
+            else clickPointer(m, 14, findRowChar(m, 14, 0x7F));
+            check(title === 'Assign' && row().startsWith(' Assign ~'),
+                  label + mode + ' Assign backtracks from the empty device list');
+            break;
+          }
+          if (!choose(key, keyboard)) break;
+          steps++;
+          if (m.ram[0x37] >= 2)
+            check(row().startsWith(before.trimEnd()), label + mode + ' ' + title +
+                  ' argument ' + steps + ' appends to the command (' + row() + ')');
+        }
+        check(steps > 0 && steps < 8 && (m.ram[0x37] <= 1 || title === 'Assign' && m.ram[0x37] === 2),
+              label + mode + ' ' + title + ' accepts its available arguments (' + steps + ' arguments)');
+      }
+    }
+    m.loadState(homeState);
+    untilAt(m, SYM.GETKEY, 1200);
+    m.ram[0x0C] = 0x89; m.ram[0x0D] = 0xBE;
+    m.cpu.pc = 0x8316; // enter the native root initializer with the end-of-mission node
+    frames(m, 100);
+    check(m.ram[0x0403] === 0x89 && row().includes('~') && !row().includes('Weap'),
+          label + 'end-of-mission root keeps its native cursor and menu');
+
   }
 }
 newUiTabBarTests();
