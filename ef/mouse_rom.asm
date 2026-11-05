@@ -88,9 +88,9 @@ MPJ2:   STX XP
         DEX
         DEX
         DEX
-        CPX #110
+        CPX #109
         BCS MPJ3
-        LDX #110
+        LDX #109
 MPJ3:   TYA
         AND #2          ; down
         BNE MPJ4
@@ -141,9 +141,15 @@ MP2:    STA XP
         EOR #$FF        ; pot Y grows upwards
         SEC
         ADC YP
+;#if NEWUI
+        CMP #109        ; New UI: half of row 13 (the tab bar). The sprite is set at raster $9A-$9E,
+        BCS MP5         ; so Y=159 is the first safe line: in VICE 104-107 vanish, 108 is the edge
+        LDA #109
+;#else
         CMP #110        ; not above the split (the sprite is set at raster $9A-$9E)
         BCS MP5
         LDA #110
+;#endif
 MP5:    CMP #200
         BCC MP6
         LDA #199
