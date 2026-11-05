@@ -1282,6 +1282,8 @@ NUTC    = $DBF1         ; the tab bar's text colour, and the row's checksum ($DB
 NUCKL   = $DBEA         ; $DBEB high nibble): colour RAM past the screen, 4 bits each
 NUCKH   = $DBEB
 NUCNTS  = $DBEC         ; the five tabs' counts ($DBEC-$DBF0, low nibbles)
+NUHOVER = $DBF2         ; the hovered field (NUFIELD), $F none
+NUNC    = $DBF3         ; a short tab's name colour while NUBAR draws it
 ; tab order W S N E R: letter, name lengths, colour, message queue ($39 order N W S R E)
 NUKEYS: .byte 'W','S','N','E','R'
 NULEN:  .byte 4,4,3,3,3
@@ -1405,6 +1407,16 @@ NUVIS:  JSR NUON                ; only on the bridge's own menus: the end of mis
         RTS
 NUVG9:  JSR NUACTV
         STX TMP
+        LDX #$FF                ; the field under the pointer on row 13 (hover)
+        LDA CROW
+        CMP #13
+        BNE NUHV
+        LDA NUDEPTH
+        CMP #2
+        BCS NUHV
+        LDA CCOL
+        JSR NUFIELD
+NUHV:   STX NUHOVER
         LDA #11                 ; menu rows: department colour, dark grey otherwise
         LDY #7
         CPX #5
@@ -1435,7 +1447,14 @@ NUS1:   JSR NUCOUNT
         STA TMP3
         DEX
         BPL NUS1
-        LDA TMP3
+        LDA NUHOVER             ; the hovered field changes the bar too
+        AND #$0F
+        ASL A
+        ASL A
+        ASL A
+        ASL A
+        EOR TMP3
+        STA TMP3
         CMP NUSIG
         BNE NUS2
         JSR NUCKSUM
@@ -1498,6 +1517,13 @@ NUB0:   LDA #$20
         BPL NUB0
         LDA #'?'
         STA NUSCR
+        LDA NUHOVER
+        AND #$0F
+        CMP #5
+        BNE NUBQ
+        LDA #1
+        STA NUCOL
+NUBQ:
         LDX #4                  ; the total
         LDA #0
 NUBT:   PHA
@@ -1549,7 +1575,15 @@ NUB2:   LDA NUFULL,X
         ADC #13
         STA TMP2
         JMP NUBSEP
-NUB5:   LDY TMP2                ; compact: short name and count
+NUB5:   LDA NUTC                ; compact: short name (white when hovered) and count
+        STA NUNC
+        LDA NUHOVER
+        AND #$0F
+        CMP TMP3
+        BNE NUB5A
+        LDA #1
+        STA NUNC
+NUB5A:  LDY TMP2
         LDA NULEN,X
         PHA
         TXA
@@ -1558,6 +1592,8 @@ NUB5:   LDY TMP2                ; compact: short name and count
         TAX
 NUB3:   LDA NUNAME,X
         STA NUSCR,Y
+        LDA NUNC
+        STA NUCOL,Y
         INX
         INY
         PLA
@@ -1580,18 +1616,35 @@ NUBSEP: LDY TMP2                ; a light grey bar between the tabs
 NUB6:   INC TMP3
         LDA TMP3
         CMP #5
-        BNE NUB1
+        BEQ NUBEND
+        JMP NUB1
+NUBEND:
         LDA NUDEPTH             ; last cell: back arrow in a department, Quit at home
         BEQ NUB7
         LDA #$7F
         STA NUSCR+39
+        LDA NUHOVER             ; the arrow white when hovered
+        AND #$0F
+        CMP #6
+        BNE NUB9R
+        LDA #1
+        STA NUCOL+39
         RTS
 NUB7:   LDX #3
 NUB8:   LDA NUQUIT,X
         STA NUSCR+36,X
         DEX
         BPL NUB8
-        RTS
+        LDX #3
+NUB9:   LDA NUHOVER             ; Quit white when hovered
+        AND #$0F
+        CMP #6
+        BNE NUB9R
+        LDA #1
+NUB9C:  STA NUCOL+36,X
+        DEX
+        BPL NUB9C
+NUB9R:  RTS
 ; the count glyph of tab TMP3 at column Y (Y kept)
 NUBCNT: TYA
         PHA
@@ -1609,6 +1662,44 @@ NUBCNT: TYA
         RTS
 
 ; a click on row 13: tabs, ? (Acknowledge), back arrow, Quit -> keys for the interpreter
+; A = column on row 13 -> X = the field under it: 0-4 tabs, 5 ? (Acknowledge), 6 the back
+; arrow (or Quit at home), $FF nothing. Needs TMP = the open tab; uses TMP2.
+NUFIELD:CMP #2
+        BCS NUF1
+        LDX #5
+        RTS
+NUF1:   LDY NUDEPTH
+        BNE NUF2
+        CMP #36
+        BCC NUF3
+        LDX #6
+        RTS
+NUF2:   CMP #39
+        BNE NUF3
+        LDX #6
+        RTS
+NUF3:   PHA
+        LDA #3                  ; walk the fields as NUBAR lays them out
+        STA TMP2
+        LDX #0
+NUF4:   LDA #6
+        CPX TMP
+        BNE NUF5
+        LDA #13
+NUF5:   CLC
+        ADC TMP2
+        STA TMP2
+        PLA
+        PHA
+        CMP TMP2
+        BCC NUF6
+        INX
+        CPX #5
+        BNE NUF4
+        LDX #$FF
+NUF6:   PLA
+        RTS
+
 NUTAB:  LSR CLICK
         BCC NUTX
         LDA NUDEPTH
@@ -1617,36 +1708,20 @@ NUTAB:  LSR CLICK
         JSR NUACTV
         STX TMP
         LDA PCOL
-        CMP #2
-        BCS NUT1
+        JSR NUFIELD
+        CPX #5
+        BNE NUT1
         LDA #'A'
         JMP NUKEY2
-NUT1:   CMP #36
-        BCC NUT2
-        LDY NUDEPTH
-        BEQ NUTQ
-        CMP #39
+NUT1:   CPX #6
         BNE NUT2
-        LDA #$14
-        JMP PUSHK
-NUTQ:   LDA #'Q'
-        JMP PUSHK
-NUT2:   LDA #3                  ; walk the fields as NUBAR lays them out
-        STA TMP2
-        LDX #0
-NUT3:   LDA #6
-        CPX TMP
-        BNE NUT4
-        LDA #13
-NUT4:   CLC
-        ADC TMP2
-        STA TMP2
-        LDA PCOL
-        CMP TMP2
+        LDA #$14                ; back arrow, or Quit at home
+        LDY NUDEPTH
+        BNE NUT1P
+        LDA #'Q'
+NUT1P:  JMP PUSHK
+NUT2:   CPX #5
         BCC NUT5
-        INX
-        CPX #5
-        BNE NUT3
 NUTX:   RTS
 NUT5:   CPX TMP
         BEQ NUTX                ; the open department: nothing to do
