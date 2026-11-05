@@ -150,11 +150,57 @@ if MOUSE:
              0xB920: (STA15, ram_sym['WRE']),
              0x9B85: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU']),
              0x86AD: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU'])}
+    if NEWUI:
+        # Snapshot repair still uses HOOKS below; hook() restores the late JMP.
+        # Ships use monochrome only: $D01C can be assigned directly.
+        # INTXT has only bits 7/6/0; preserve the pending-update meaning with $C1.
+        early_src = """* = $8831
+        CLD
+        BIT INTXT
+        BVC DONE
+        LDA #$C1
+        STA INTXT
+        LDA #$82
+        STA $57FF
+        LDA SPY
+        STA $D00F
+        LDA #$80
+        STA $D01C
+        LDA $D015
+        ORA #$80
+        STA $D015
+        JMP TSPR
+DONE:   LDA $D011
+        RTS
+"""
+        early, _, _ = assemble(''.join(f'{k} = ${v:04X}\n' for k, v in ram_sym.items()) + early_src)
+        assert min(early) == 0x8831 and max(early) <= 0x8866
     hooked = dict.fromkeys(HOOKS, 0)
     replay_old = b'Same_crew_&_course New_crew_&_course ' + bytes([255, 3, 0xD3, 0xCE, 0x14, 0x2E, 0xBE, 0x40, 0xBE, 0xA7, 0xBB])
     replay_short = (b'Same New ' + replay_old[-11:]).ljust(len(replay_old), b'\0')
     menu_patched = {'replay': 0}
 
+
+    def norank(mem, i):
+        # node: words ... $FF, count, keys, description pointers, next-node pointers (none for the
+        # last item, the back arrow); rewrite it in place without the R item, padding the end
+        t = i
+        while mem[t] != 0xFF:
+            t += 1
+        words = bytes(mem[i:t]).decode('latin-1').split(' ')[:-1]
+        n = mem[t + 1]
+        keys = list(mem[t + 2:t + 2 + n])
+        if 'Rank' not in words or ord('R') not in [k & 0x7F for k in keys]:
+            return
+        desc = [mem[t + 2 + n + 2 * k:t + 4 + n + 2 * k] for k in range(n)]
+        nxt = [mem[t + 2 + 3 * n + 2 * k:t + 4 + 3 * n + 2 * k] for k in range(n - 1)]
+        end = t + 2 + 3 * n + 2 * (n - 1)
+        r = [k & 0x7F for k in keys].index(ord('R'))
+        assert words.index('Rank') == r
+        del words[r], keys[r], desc[r], nxt[r]
+        out = (' '.join(words) + ' ').encode('latin-1') + bytes([0xFF, n - 1] + keys)
+        out += b''.join(bytes(d) for d in desc) + b''.join(bytes(x) for x in nxt)
+        mem[i:end] = out.ljust(end - i, bytes(1))
 
     def hook(mem, start):
         # Keep the native S/N/back keys and destination pointers, moving them
@@ -169,6 +215,11 @@ if MOUSE:
             if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == old:
                 mem[i:i + 3] = bytes([old[0] if old[0] == 0x4C else 0x20, tgt & 255, tgt >> 8])
                 hooked[a] += 1
+        if NEWUI:   # the department menus without Rank (ranking is by dragging)
+            for node in (0xC106, 0xC24B, 0xC293, 0xC1F0, 0xBFF3):
+                i = node - start
+                if 0 <= i and i + 80 <= len(mem):
+                    norank(mem, i)
         if NEWUI:   # the menu highlight's background text: yellow instead of cyan
             i = 0x94AE - start
             if 0 <= i and i + 2 <= len(mem) and bytes(mem[i:i + 2]) == bytes([0xA9, 0x03]):
@@ -176,6 +227,15 @@ if MOUSE:
             i = 0x882E - start  # no Processing delay: straight to the executor ($8831-$8866 become free)
             if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == bytes([0xA0, 0x27, 0xB9]):
                 mem[i:i + 3] = bytes([0x4C, 0x67, 0x88])
+            i = 0x8ECE - start
+            if 0 <= i and i + 4 <= len(mem) and bytes(mem[i:i + 4]) == bytes([0xD8, 0xAD, 0x11, 0xD0]):
+                mem[i:i + 4] = bytes([0x20, 0x31, 0x88, 0xEA])
+                for a, v in early.items():
+                    assert 0 <= a - start < len(mem)
+                    mem[a - start] = v
+            i = 0x8EFF - start
+            if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == bytes([0x4C, ram_sym['TSPR'] & 255, ram_sym['TSPR'] >> 8]):
+                mem[i:i + 3] = bytes([0x4C, 0x95, 0x8F])
 
 
     if BRIDGE:      # hooks of the cartridge the snapshot came from point to the old RAM part

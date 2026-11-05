@@ -808,7 +808,7 @@ function newUiTabBarTests() {
   const tabs = [
     ['W', 'Weap', 'Weapons', 6, 1], ['S', 'Scan', 'Scanning', 2, 2],
     ['N', 'Nav', 'Navigation', 4, 0], ['E', 'Eng', 'Engineering', 12, 4],
-    ['R', 'Rep', 'Repair', 5, 3]
+    ['R', 'Rep', 'Repair', 9, 3]
   ];
   const glyphs = [0x20, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xCC];
   for (const dma of [false, true]) {
@@ -858,6 +858,61 @@ function newUiTabBarTests() {
           Array.from(m.ram.slice(0x5000 + 13 * 40 + cursor + 1, 0x5000 + 14 * 40)).every(c => c === 0x20),
           label + 'Fire prompt keeps native echo and clears the bar after cursor (row ' + JSON.stringify(row()) + ')');
     snap(m, 'newui-tabs-' + (dma ? 'dma' : 'plain') + '-prompt');
+  }
+}
+// New UI row-13 reach and split timing, including every native scroll profile.
+if (process.env.PSI5_NEWUI) {
+  for (const dma of [false, true]) for (let scroll = 0; scroll < 8; scroll++) {
+    const m = boot(dma); frames(m, 200); m.moveMouse(1, 0); frames(m, 5);
+    const label = `row 13 DMA=${dma} scroll=${scroll}: `;
+    // Exercise the actual mouse clamp, then the joystick clamp, without click offsets.
+    for (let n = 0; n < 40; n++) { m.moveMouse(0, 8); frames(m, 1); }
+    check(m.ram[SYM.MOUSEY] === 104 && m.ram[SYM.POINTERROW] === 13,
+          label + 'mouse reaches the first pixel of row 13');
+    const y = SYM.MOUSEY;
+    m.ram[0x5837] = 1; m.ram[0x3A09] = scroll;
+    let draws = [], waits = [], enables = [];
+    const step = m.cpu.step, write = m.write, draw = m.video.drawSprites;
+    m.cpu.step = function () {
+      if (!m.cartMode && this.pc === 0x8F33) {
+        // Controlled ship 7 finishes before the handoff; seven other ships steal cycles there.
+        m.ram[y + 19] = 80; m.ram[y + 20] = 120;
+        m.ram[y + 21] = 3; m.ram[y + 22] = 255;
+        for (let n = 0; n < 7; n++) { m.write(0xD000 + n * 2, 80 + n * 24); m.write(0xD001 + n * 2, 145); }
+      }
+      if (!m.cartMode && this.pc === 0x8F43) { m.ram[0x5837] = 1; m.ram[0x3A09] = scroll; }
+      if (!m.cartMode && this.pc === 0x8ED6) waits.push([m.frame, m.rasterLine(), m.rasterCycle()]);
+      return step.call(this);
+    };
+    m.write = function (a, v) {
+      if (a === 0xD015 && (v & 128) && m.rasterLine() > 140) enables.push([m.frame, m.rasterLine(), m.rasterCycle()]);
+      return write.call(this, a, v);
+    };
+    m.video.drawSprites = function (v, bank, screen, line) {
+      draws.push([m.frame, line, v[15], v[0x15], this.ptrs[((bank + screen) >> 10) * 8 + 7], v[14], v[0x2E], v[0x1C]]);
+      return draw.call(this, v, bank, screen, line);
+    };
+    frames(m, 12);
+    const last = m.frame - 1, tip = 151 + scroll;
+    const ds = [...new Map(draws.filter(d => d[0] === last).map(d => [d[1], d])).values()];
+    const arrow = ds.filter(d => d[1] >= tip && d[1] < tip + 21);
+    check(arrow.length === 21 && arrow.every(d => d[2] === tip && (d[3] & 128) && d[4] === 0x82 && d[6] === 1 && (d[7] & 128)),
+          label + 'complete pointer across all 21 rows at the tab-bar top');
+    const wait = waits.find(w => w[0] === last), enable = enables.find(w => w[0] === last);
+    check(wait && (wait[1] < tip || (wait[1] === tip && wait[2] < 60)) &&
+          enable && (enable[1] < tip || (enable[1] === tip && enable[2] < 55)),
+          label + 'enable precedes VIC Y comparison and equality wait catches its target');
+    const ships = ds.filter(d => d[1] >= 80 && d[1] <= 140);
+    check(ships.length === 61 && ships.every(d => d[2] === 120 && (d[3] & 128) && d[4] === 7 && d[5] === 80 && d[6] === 3 && !(d[7] & 128)),
+          label + 'ship 7 above the split retains its shape and registers');
+    if (scroll === 3) snap(m, 'newui-row13-' + (dma ? 'dma' : 'plain'));
+    m.cpu.step = step; m.write = write; m.video.drawSprites = draw;
+    // $FF pots select MPJOY; port-2 up must clamp to the same pixel.
+    m.mouse.enabled = false;
+    m.sidRead = function (r) { return r === 0x19 || r === 0x1A ? 255 : 0; };
+    m.joy2 = 1;
+    m.ram[y] = 105; frames(m, 4);
+    check(m.ram[y] === 104 && m.ram[SYM.POINTERROW] === 13, label + 'joystick reaches the same top pixel');
   }
 }
 newUiTabBarTests();

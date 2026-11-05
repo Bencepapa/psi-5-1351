@@ -88,9 +88,9 @@ MPJ2:   STX XP
         DEX
         DEX
         DEX
-        CPX #110
+        CPX #104
         BCS MPJ3
-        LDX #110
+        LDX #104
 MPJ3:   TYA
         AND #2          ; down
         BNE MPJ4
@@ -141,9 +141,15 @@ MP2:    STA XP
         EOR #$FF        ; pot Y grows upwards
         SEC
         ADC YP
+;#if NEWUI
+        CMP #104
+        BCS MP5
+        LDA #104
+;#else
         CMP #110        ; not above the split (the sprite is set at raster $9A-$9E)
         BCS MP5
         LDA #110
+;#endif
 MP5:    CMP #200
         BCC MP6
         LDA #199
@@ -155,7 +161,16 @@ MP6:    STA YP
         STA CROW
         TXA
         CLC
+;#if NEWUI
+        ADC #47
+        STA SPY
+        LDA $D011
+        AND #7
+        CLC
+        ADC SPY
+;#else
         ADC #50
+;#endif
         STA SPY
         LDA #0          ; sprite X = 2*XP+24
         STA SPM
@@ -612,6 +627,20 @@ COLRD:  JSR ROWADR
         RTS
 
 ; ---- text split: sprite 7 becomes the pointer ----
+;#if NEWUI
+; Early split: ROM does only the less urgent X/high-bit/colour work.
+; RAM has already installed Y, shape, mode and enable before the Y comparison.
+MSPR:   LDA SPX
+        STA $D00E
+        LDA $D010
+        AND #$7F
+        ORA SPM
+        STA $D010
+        LDA #PTRCOL
+        STA $D02E
+        LDA $D011
+        RTS
+;#else
 MSPR:   BIT INTXT       ; only with the arrow in its block
         BVC MS9
         LDA INTXT
@@ -638,17 +667,33 @@ MSPR:   BIT INTXT       ; only with the arrow in its block
         ORA #$80
         STA $D015
 MS9:    RTS
+;#endif
+;#if NEWUI
+MS9:    RTS
+;#endif
 ; ---- line $82: the arrow goes into its block ----
 MXOR:   LDA MOUSEON
         BEQ MS9
         LDA SHSIGA
         CMP #SHSIG
         BNE MS9
+;#if NEWUI
+        LDA #SHBLOCK
+        STA $53FF
+        LDA #0
+        STA $D025       ; ships are monochrome; shared multicolour is unused
+;#endif
         LDA #$40
         STA INTXT
         JMP SHPUT
 ; ---- top of the screen: sprite 7 back to the game ----
+;#if NEWUI
+MTOP:   LDA #7
+        STA $57FF
+        BIT INTXT
+;#else
 MTOP:   BIT INTXT
+;#endif
         BVC MT1
         JSR SHRST
 MT1:    BIT INTXT
@@ -1255,12 +1300,13 @@ NUDEPTH = $37
 NUTC    = $DBE9         ; the tab bar's text colour, and the row's checksum ($DBEA low,
 NUCKL   = $DBEA         ; $DBEB high nibble): colour RAM past the screen, 4 bits each
 NUCKH   = $DBEB
+NUCNTS  = $DBEC         ; the five tabs' counts ($DBEC-$DBF0, low nibbles)
 ; tab order W S N E R: letter, name lengths, colour, message queue ($39 order N W S R E)
 NUKEYS: .byte 'W','S','N','E','R'
 NULEN:  .byte 4,4,3,3,3
 NUFLEN: .byte 7,8,10,11,6
 NUFOFF: .byte 0,11,22,33,44
-NUCLR:  .byte 6,2,4,12,5
+NUCLR:  .byte 6,2,4,12,9
 NUTXT:  .byte 7,7,7,7,7        ; menu text on each department colour (0 = black text, white names)
 NUQ:    .byte 1,2,0,4,3
 NUQB:   .byte 8,16,0,32,24      ; the queues' fixed starts ($EC39+i), in NUQ order
@@ -1295,6 +1341,20 @@ NUACTV: LDX #$FF
         LDA $2D
         JMP NUTABOF
 NUAC9:  RTS
+
+; row 14: cyan or yellow menu text in the department's text colour (TMP2)
+NURECOL:LDX #39
+NUVC:   LDA $DA30,X
+        AND #$0F
+        CMP #3
+        BEQ NUVC1
+        CMP #7
+        BNE NUVD
+NUVC1:  LDA TMP2
+        STA $DA30,X
+NUVD:   DEX
+        BPL NUVC
+        RTS
 
 ; A = the XOR of row 13's 40 characters; TMP3 = the stored one
 NUCKSUM:LDA NUCKH
@@ -1347,12 +1407,32 @@ NUFRAME:LDA $D011
         LDA $D012
         CMP #4
         BCC NUF9
-        CMP #34
+        CMP #20
         BCS NUF9
         JMP NUVIS
 NUF9:   RTS
 
-NUVIS:  LDX #7                  ; the glyphs, every frame (loads rewrite parts of the charset)
+NUVIS:                          ; the glyphs, again if a load overwrote one (row 3 of each)
+        LDA $5DC3
+        CMP NUGLYPH+3
+        BNE NUVCOPY
+        LDA $5DCB
+        CMP NUGLYPH+11
+        BNE NUVCOPY
+        LDA $5DD3
+        CMP NUGLYPH+19
+        BNE NUVCOPY
+        LDA $5DDB
+        CMP NUGLYPH+27
+        BNE NUVCOPY
+        LDA $5DE3
+        CMP NUGLYPH+35
+        BNE NUVCOPY
+        LDA $5E63
+        CMP NUGLYPH+43
+        BNE NUVCOPY
+        JMP NUVG9
+NUVCOPY:LDX #7
 NUVG:
         LDA NUGLYPH+0,X
         STA $5DC0,X
@@ -1379,21 +1459,12 @@ NUVG9:  JSR NUACTV
 NUVB:   STA $8EF3
         STY $94AF               ; the game's own menu text colour
         STY TMP2
-        LDX #39                 ; cyan or yellow menu text in the department's text colour
-NUVC:   LDA $DA30,X
-        AND #$0F
-        CMP #3
-        BEQ NUVC1
-        CMP #7
-        BNE NUVD
-NUVC1:  LDA TMP2
-        STA $DA30,X
-NUVD:   DEX
-        BPL NUVC
         LDA NUDEPTH
         CMP #2
-        BCS NUPROMPT
-        LDA NUDEPTH             ; redraw when the bar would change, or the game wrote over it
+        BCC NUSIGN
+        JSR NURECOL
+        JMP NUPROMPT
+NUSIGN: LDA NUDEPTH             ; redraw when the bar would change, or the game wrote over it
         ASL A
         ASL A
         ASL A
@@ -1401,6 +1472,7 @@ NUVD:   DEX
         STA TMP3
         LDX #4
 NUS1:   JSR NUCOUNT
+        STA NUCNTS,X            ; cached for NUBAR
         CLC
         ADC TMP3
         ASL TMP3
@@ -1424,10 +1496,11 @@ NUS2:   LDA TMP3
         LSR A
         LSR A
         STA NUCKH
+        RTS                     ; (a redraw frame does nothing else)
 NUS9:   LDA NUDEPTH
         BNE NUS9R
         JMP NUSTAT
-NUS9R:  RTS
+NUS9R:  JMP NURECOL
 NUPROMPT:
         LDA #$FF                ; back at depth 0/1 the bar is drawn again
         STA NUSIG
@@ -1486,7 +1559,8 @@ NUB0:   LDA #$20
         LDX #4                  ; the total
         LDA #0
 NUBT:   PHA
-        JSR NUCOUNT
+        LDA NUCNTS,X
+        AND #$0F
         STA TMP3
         PLA
         CLC
@@ -1580,7 +1654,8 @@ NUB8:   LDA NUQUIT,X
 NUBCNT: TYA
         PHA
         LDX TMP3
-        JSR NUCOUNT
+        LDA NUCNTS,X
+        AND #$0F
         JSR NUGLYC
         TAX
         PLA
@@ -1640,7 +1715,12 @@ NUKEY2: PHA
         LDA #$14                ; from a department: back to the main menu first
         JSR PUSHK
 NUK3:   PLA
+        JSR PUSHK
+        CMP #'A'                ; a department opens on its Status page
+        BEQ NUK4
+        LDA #'S'
         JMP PUSHK
+NUK4:   RTS
 ; home: row 14 = " ETA Early   Speed 4   Cargo 100%" (ETA text $7380, speed digit $73F4,
 ; remaining cargo in per cent $3A32)
 NUROW14 = $5230
@@ -1958,7 +2038,7 @@ ROWHI:  .byte 0,0,0,0,0,0,0,1
 
 ; the arrow, multicolour (white, black outline): tip at the sprite's top left corner
 SHAPE:
-        .byte $40,$00,$00,$50,$00,$00,$64,$00,$00,$69,$00,$00
+        .byte $80,$00,$00,$60,$00,$00,$64,$00,$00,$69,$00,$00
         .byte $6A,$40,$00,$6A,$90,$00,$6A,$A4,$00,$6A,$54,$00
         .byte $66,$40,$00,$51,$90,$00,$41,$90,$00,$00,$50,$00
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00

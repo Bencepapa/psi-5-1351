@@ -170,9 +170,18 @@ WRX2:   RTS
 ; the pointer below. The game moves its sprites from the main loop at any time, so while the
 ; pointer is up the game's stores for sprite 7 go to the shadow variables only (WRX, WRY, WRC, WRE).
 ; text split ($8EFF JMP $8F95)
+;#if NEWUI
+; Tail-call: ROMCALL returns directly to the early handoff caller.
+TSPR:   LDX #<MSPR
+        JMP ROMCALL
+        NOP
+        NOP
+        NOP
+;#else
 TSPR:   LDX #<MSPR
         JSR ROMCALL
         JMP $8F95
+;#endif
 ; line $82, below the top rows of the view ($8E9D STA $0315): the arrow goes into its block
 TXOR:   STA $0315
         LDX #<MXOR
