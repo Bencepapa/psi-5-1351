@@ -1254,7 +1254,7 @@ SV1:    LDA $2D,Y
 ; Home (depth 0) and a department menu (depth 1) show the tab bar; deeper prompts
 ; keep the game's echo line. Both menu rows take the department colour ($8EF3 is the
 ; operand of the split IRQ's LDY #$06), their cyan text becomes yellow, and the
-; message counts are rounded inverse digits in six unused charset codes.
+; message counts are white digits after the names.
 NUSCR   = $5208         ; row 13
 NUCOL   = $DA08
 NUDEPTH = $37
@@ -1278,15 +1278,6 @@ NUFULL: .byte 'W','e','a','p','o','n','s',' ',' ',' ',' '
         .byte 'E','n','g','i','n','e','e','r','i','n','g'
         .byte 'R','e','p','a','i','r',' ',' ',' ',' ',' '
 NUQUIT: .byte 'Q','u','i','t'
-NUGL:   .byte $B8,$B9,$BA,$BB,$BC,$CC   ; codes for 1 2 3 4 5 +: never shown, read or written by the game
-NUGLYPH:
-        .byte $7E,$EF,$CF,$EF,$EF,$C7,$FF,$7E   ; 1
-        .byte $7E,$C7,$F7,$C7,$DF,$C7,$FF,$7E   ; 2
-        .byte $7E,$C7,$F7,$C7,$F7,$C7,$FF,$7E   ; 3
-        .byte $7E,$D7,$D7,$C7,$F7,$F7,$FF,$7E   ; 4
-        .byte $7E,$C7,$DF,$C7,$F7,$C7,$FF,$7E   ; 5
-        .byte $7E,$FF,$EF,$C7,$EF,$FF,$FF,$7E   ; +
-
 ; A = department letter -> X = tab index, $FF if not a tab
 NUTABOF:LDX #4
 NUTO1:  CMP NUKEYS,X
@@ -1352,12 +1343,11 @@ NUCOUNT:LDY NUQ,X
 ; A = count -> A = its glyph, a blank for none
 NUGLYC: CMP #0
         BEQ NUGL0
-        CMP #6
+        CMP #10
         BCC NUGL1
-        LDA #6
-NUGL1:  TAY
-        LDA NUGL-1,Y
-        RTS
+        LDA #9
+NUGL1:  ORA #'0'                ; the charset's own digits: the New UI changes no glyphs
+        RTS                     ; (the orbit's planet uses the free-looking codes)
 NUGL0:  LDA #$20
         RTS
 
@@ -1373,42 +1363,7 @@ NUFRAME:LDA $D011
         JMP NUVIS
 NUF9:   RTS
 
-NUVIS:                          ; the glyphs, again if a load overwrote one (row 3 of each)
-        LDA $5DC3
-        CMP NUGLYPH+3
-        BNE NUVCOPY
-        LDA $5DCB
-        CMP NUGLYPH+11
-        BNE NUVCOPY
-        LDA $5DD3
-        CMP NUGLYPH+19
-        BNE NUVCOPY
-        LDA $5DDB
-        CMP NUGLYPH+27
-        BNE NUVCOPY
-        LDA $5DE3
-        CMP NUGLYPH+35
-        BNE NUVCOPY
-        LDA $5E63
-        CMP NUGLYPH+43
-        BNE NUVCOPY
-        JMP NUVG9
-NUVCOPY:LDX #7
-NUVG:
-        LDA NUGLYPH+0,X
-        STA $5DC0,X
-        LDA NUGLYPH+8,X
-        STA $5DC8,X
-        LDA NUGLYPH+16,X
-        STA $5DD0,X
-        LDA NUGLYPH+24,X
-        STA $5DD8,X
-        LDA NUGLYPH+32,X
-        STA $5DE0,X
-        LDA NUGLYPH+40,X
-        STA $5E60,X
-        DEX
-        BPL NUVG
+NUVIS:
 NUVG9:  JSR NUACTV
         STX TMP
         LDA #11                 ; menu rows: department colour, dark grey otherwise

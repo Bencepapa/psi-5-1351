@@ -810,7 +810,7 @@ function newUiTabBarTests() {
     ['N', 'Nav', 'Navigation', 4, 0], ['E', 'Eng', 'Engineering', 12, 4],
     ['R', 'Rep', 'Repair', 9, 3]
   ];
-  const glyphs = [0x20, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xCC];
+  const glyphs = [0x20, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39];
   for (const dma of [false, true]) {
     const label = 'New UI tabs ' + (dma ? 'm.dma' : 'page speed') + ': ';
     const m = boot(dma, 'bridge');
@@ -840,7 +840,7 @@ function newUiTabBarTests() {
             ' (depth ' + m.ram[0x37] + ', department ' + m.ram[0x2D] + ', colour ' + m.ram[0x8EF3] + ')');
       const start = row().indexOf(name), pending = m.ram[0xFFE8 + queue] - queue * 8;
       const actual = start < 0 ? -1 : rowChar(m, 13, start + name.length);
-      check(pending >= 0 && start >= 0 && actual === glyphs[Math.min(pending, 6)],
+      check(pending >= 0 && start >= 0 && actual === glyphs[Math.min(pending, 9)],
             label + name + ' count matches RAM queue (' + pending + ' pending, glyph $' + hx(actual) + ')');
     }
     clickPointer(m, 13, 0); frames(m, 40);
