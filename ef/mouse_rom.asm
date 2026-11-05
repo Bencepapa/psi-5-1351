@@ -57,9 +57,62 @@ FLASHLEN = 40            ; frames
         JMP MXOR
         JMP MREST
 ; ---- IRQ: pots, pointer ----
+;#if NEWUI
+; joystick in port 2, no 1351: 4 pixels across and 3 lines down per frame, as the mouse is clamped
+MPJOY:  LDY $DC00
+        LDX XP
+        TYA
+        AND #4          ; left
+        BNE MPJ1
+        DEX
+        DEX
+        BPL MPJ1
+        LDX #0
+MPJ1:   TYA
+        AND #8          ; right
+        BNE MPJ2
+        INX
+        INX
+        CPX #160
+        BCC MPJ2
+        LDX #159
+MPJ2:   STX XP
+        TXA
+        LSR A
+        LSR A
+        STA CCOL
+        LDX YP
+        TYA
+        AND #1          ; up
+        BNE MPJ3
+        DEX
+        DEX
+        DEX
+        CPX #110
+        BCS MPJ3
+        LDX #110
+MPJ3:   TYA
+        AND #2          ; down
+        BNE MPJ4
+        INX
+        INX
+        INX
+        CPX #200
+        BCC MPJ4
+        LDX #199
+MPJ4:   TXA
+        JMP MP6
+;#endif
 MPRE:   LDA $D419
         AND $D41A
         EOR #$FF        ; $FF on both pots = no 1351 in port 2
+;#if NEWUI
+        BNE MPMOUSE
+        LDA #1          ; New UI: a joystick drives the same pointer
+        STA MOUSEON
+        JMP MPJOY
+MPMOUSE:
+;#endif
         STA MOUSEON
         BNE MP0
         RTS
@@ -630,6 +683,16 @@ MJBRIDGE:LDA MENUON
         BEQ MJ0
         DEC MENUON
 MJ0:    LDA $DC00
+;#if NEWUI
+        TAX
+        LDA $D419       ; joystick driving the pointer: its directions are not buttons
+        AND $D41A
+        CMP #$FF
+        TXA
+        BCC MJ0M
+        ORA #$0F
+MJ0M:
+;#endif
         STA TMP3
         LDX MOUSEON
         BNE MJHAS
