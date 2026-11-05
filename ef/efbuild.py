@@ -129,7 +129,75 @@ if MOUSE:
         return lab + ':' + chr(10) + ''.join(f'        LDA #${v:02X}{chr(10)}        .byte $8D{chr(10)}        .word ${ARTAD + i:04X}{chr(10)}'
                                              for i, v in sorted(enumerate(data), key=lambda p: (p[0] % 8, p[0]))) + '        RTS' + chr(10)
     SIG = next(i for i, v in enumerate(art) if v not in (0, 255))
+    if NEWUI:
+        # $2F60-$30A0 is unused game RAM (RE-NOTES / split investigation).
+        # Never bank ROM in front of the equality wait. Only the verified
+        # scroll-3 bitmap path at raster <=150 has the required time budget.
+        early, early_sym, _ = assemble(''.join(f'{k} = ${v:04X}\n' for k, v in ram_sym.items()) + """
+        *= $2F60
+NEARLY: CLD
+        LDA $D012
+        CMP #151
+        BCS NEDONE
+        LDA $D011
+        CMP #$3B
+        BNE NEDONE
+        LDA $D018
+        AND #$FE        ; VIC-II reads the unused bit 0 as one
+        CMP #$58
+        BNE NEDONE
+        BIT INTXT
+        BVC NEDONE
+        LDA INTXT
+        ORA #$80
+        STA INTXT
+        LDA #$82
+        STA $57FF
+        STA $53FF
+        LDA SPX
+        STA $D00E
+        LDA YP
+        CLC
+        ADC #50
+        STA $D00F
+        LDA $D010
+        AND #$7F
+        ORA SPM
+        STA $D010
+        LDA #1
+        STA $D02E
+        LDA #0
+        STA $D025
+        LDA $D01C
+        ORA #$80
+        STA $D01C
+        LDA $D015
+        ORA #$80
+        STA $D015
+NEDONE: LDA $D011
+        RTS
+; Suppress the native echo for the type-0 Status leaf too. Argument
+; prompts (other node types) still need their native command echo.
+NEECHO: LDY $37
+        BEQ NEROOT
+        CPY #1
+        BNE NENATIVE
+        LDA $02
+        BNE NENATIVE
+NEROOT: JSR $882E
+        BNE NENATIVE
+        LDA #0
+        JMP $87C5
+NENATIVE: LDX $37
+        JMP $8799
+""")
+        assert max(early) <= 0x30A0 and 0 < len(early) < 256
+        for a, v in early.items():
+            img[a] = v
     rom_extra = chr(10) + unrolled('SHPUT', shape) + unrolled('SHRST', art)
+    if NEWUI:
+        rom_extra += '\nNECOUNT = %d\nNEDATA: .byte ' % len(early) + ','.join(str(early[a]) for a in sorted(early)) + '\n'
+
     rom_extra += chr(10) + open(os.path.join(HERE, 'mouse_front.asm'), encoding='utf8').read()
     rom_extra += chr(10) + 'FARTDATA: .byte ' + ','.join(f'${b:02X}' for b in front_art) + chr(10)
     rom_out, rom_sym = asm_file('mouse_rom.asm', f'SHSIGA = ${ARTAD + SIG:04X}{chr(10)}SHSIG = ${art[SIG]:02X}{chr(10)}SHBLOCK = ${(ARTAD - 0x4000) // 64:02X}{chr(10)}' + ''.join(f'{k} = ${v:04X}' + chr(10) for k, v in ram_sym.items()
@@ -150,6 +218,9 @@ if MOUSE:
              0xB920: (STA15, ram_sym['WRE']),
              0x9B85: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU']),
              0x86AD: (bytes([0x99, 0x31, 0xDA]), ram_sym['WPMENU'])}
+    if NEWUI:
+        # The type-4 builder now jumps away at $8370; other types enter $838F.
+        HOOKS[0xCC59] = (bytes([0x4C, 0x81, 0xCE]), 0x8373)
     hooked = dict.fromkeys(HOOKS, 0)
     replay_old = b'Same_crew_&_course New_crew_&_course ' + bytes([255, 3, 0xD3, 0xCE, 0x14, 0x2E, 0xBE, 0x40, 0xBE, 0xA7, 0xBB])
     replay_short = (b'Same New ' + replay_old[-11:]).ljust(len(replay_old), b'\0')
@@ -190,6 +261,10 @@ if MOUSE:
             if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == old:
                 mem[i:i + 3] = bytes([old[0] if old[0] == 0x4C else 0x20, tgt & 255, tgt >> 8])
                 hooked[a] += 1
+        if NEWUI:
+            i = 0x8ECE - start
+            if 0 <= i and bytes(mem[i:i + 4]) == bytes([0xD8, 0xAD, 0x11, 0xD0]):
+                mem[i:i + 4] = bytes([0x20, 0x60, 0x2F, 0xEA])
         if NEWUI:   # the department menus without Rank (ranking is by dragging)
             for node in (0xC106, 0xC24B, 0xC293, 0xC1F0, 0xBFF3):
                 i = node - start
@@ -204,19 +279,12 @@ if MOUSE:
                 mem[i:i + 3] = bytes([0x4C, 0x67, 0x88])
                 # Bridge-only echo gates in the removed Processing delay. The
                 # native interpreter keeps command offsets, with depth 0 empty.
-                code, labels, _ = assemble("""
+                code, labels, _ = assemble(f"""
                         *= $882E
 NUROOT:                 LDA $0403
                         CMP #$E8
 NUR9:                   RTS
-NUEGATE:                LDY $37
-                        BNE NUENATIVE
-                        JSR NUROOT
-                        BNE NUENATIVE
-                        TYA
-                        JMP $87C5
-NUENATIVE:              LDX $37         ; native BEQ tests depth; deeper X is replaced by its offset
-                        JMP $8799
+NUEGATE:                JMP ${early_sym['NEECHO']:04X}
 NUBACK:                 LDY $37
                         JSR NUROOT
                         BNE NUBNATIVE
@@ -248,6 +316,15 @@ NUIBRIDGE:              LDA #$20
                     0x20, 0xD4, 0x94, 0xA2, 0x15,
                     0x20, ram_sym['ROMCALL'] & 255, ram_sym['ROMCALL'] >> 8,
                     0x4C, 0x14, 0x88])
+                # Startup reaches this after the interpreter image has loaded.
+                init, _, _ = assemble(f"""*= $8373
+                        LDX #$18
+                        JSR ${ram_sym['ROMCALL']:04X}
+                        JMP $CE81
+""")
+                assert max(init) < 0x838F
+                for address, value in init.items():
+                    mem[address - start] = value
                 for address, target, old in (
                         (0x8795, labels['NUEGATE'], bytes([0xA2, 0, 0xA4])),
                         (0x9B91, labels['NUBACK'], bytes([0xA4, 0x37, 0xBE]))):

@@ -983,7 +983,7 @@ function automaticPriorityTests() {
         m.ram.fill(0x20, 0x7100, 0x7300);
         for (let i = 0; i < count; i++) m.ram[0x7100 + i * 40] = 0x41 + i;
         m.cpu.x = dept; m.cpu.y = dept; m.cpu.pc = 0x8368;
-        const start = m.saveState(), patched = m.ram.slice(0x8368, 0x8373);
+        const start = m.saveState(), patched = m.ram.slice(0x8368, 0x838F);
         let flashed = false;
         const write = m.write;
         m.write = function(a, v) {
@@ -997,7 +997,13 @@ function automaticPriorityTests() {
         const autoExecuted = untilAt(m, 0x8AA2, 100);
         const autoList = Array.from(m.ram.slice(list, list + 320));
         m.loadState(start);
-        m.ram.set([0x20,0xD4,0x94,0xE0,0x08,0xF0,0x08,0x8A,0x69,0x31,0x95], 0x8368);
+        // The installer reuses the abandoned builder tail. Restore the whole
+        // native builder for this comparison, including its loop and branches.
+        m.ram.set([
+          0x20,0xD4,0x94,0xE0,0x08,0xF0,0x08,0x8A,0x69,0x31,0x95,0x1B,0xE6,
+          0x1A,0xE8,0xCA,0x30,0x52,0xA9,0x08,0x38,0xE5,0x1A,0xA8,0xA2,0x00,
+          0xB9,0x51,0x50,0x95,0x1B,0xC8,0xE8,0xE4,0x1A,0xD0,0xF5,0xF0,0x3D
+        ], 0x8368);
         untilAt(m, SYM.GETKEY, 100);
         const end = Math.min(count + 1, 8) + 0x30;
         m.ram[0x03CA] = end; m.ram[0x4E] = 1;

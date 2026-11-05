@@ -58,6 +58,14 @@ FLASHLEN = 40            ; frames
         JMP MREST
 ;#if NEWUI
         JMP NUAUTO      ; $8015: interpreter priority completion
+        JMP NEINIT      ; $8018: startup installer for the unbanked handoff
+NEINIT: LDY #0
+NECOPY: LDA NEDATA,Y
+        STA $2F60,Y
+        INY
+        CPY #NECOUNT
+        BNE NECOPY
+        RTS
 NUAUTO: LDA $1A         ; same cap and insertion position as native type-4 node
         CMP #8
         BCC NUAADD
@@ -100,9 +108,9 @@ MPJ2:   STX XP
         DEX
         DEX
         DEX
-        CPX #109
+        CPX #104
         BCS MPJ3
-        LDX #109
+        LDX #104
 MPJ3:   TYA
         AND #2          ; down
         BNE MPJ4
@@ -154,9 +162,9 @@ MP2:    STA XP
         SEC
         ADC YP
 ;#if NEWUI
-        CMP #109        ; New UI: half of row 13 (the tab bar). The sprite is set at raster $9A-$9E,
-        BCS MP5         ; so Y=159 is the first safe line: in VICE 104-107 vanish, 108 is the edge
-        LDA #109
+        CMP #104        ; New UI: row 13; guarded RAM handoff precedes the Y compare.
+        BCS MP5
+        LDA #104
 ;#else
         CMP #110        ; not above the split (the sprite is set at raster $9A-$9E)
         BCS MP5
@@ -630,7 +638,12 @@ COLRD:  JSR ROWADR
         RTS
 
 ; ---- text split: sprite 7 becomes the pointer ----
-MSPR:   BIT INTXT       ; only with the arrow in its block
+MSPR:
+;#if NEWUI
+        BIT INTXT
+        BMI MS9        ; unbanked handoff already installed this frame
+;#endif
+        BIT INTXT       ; only with the arrow in its block
         BVC MS9
         LDA INTXT
         ORA #$80
@@ -640,6 +653,12 @@ MSPR:   BIT INTXT       ; only with the arrow in its block
         LDA SPX
         STA $D00E
         LDA SPY
+;#if NEWUI
+        CMP #159       ; late fallback must not miss the sprite Y comparison
+        BCS MSY
+        LDA #159
+MSY:
+;#endif
         STA $D00F
         LDA $D010
         AND #$7F
@@ -666,7 +685,12 @@ MXOR:   LDA MOUSEON
         STA INTXT
         JMP SHPUT
 ; ---- top of the screen: sprite 7 back to the game ----
-MTOP:   BIT INTXT
+MTOP:
+;#if NEWUI
+        LDA #7
+        STA $57FF      ; restore the bitmap sprite pointer for the next viewscreen
+;#endif
+        BIT INTXT
         BVC MT1
         JSR SHRST
 MT1:    BIT INTXT
