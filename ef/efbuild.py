@@ -173,6 +173,9 @@ if MOUSE:
             i = 0x94AE - start
             if 0 <= i and i + 2 <= len(mem) and bytes(mem[i:i + 2]) == bytes([0xA9, 0x03]):
                 mem[i + 1] = 0x07
+            i = 0x882E - start  # no Processing delay: straight to the executor ($8831-$8866 become free)
+            if 0 <= i and i + 3 <= len(mem) and bytes(mem[i:i + 3]) == bytes([0xA0, 0x27, 0xB9]):
+                mem[i:i + 3] = bytes([0x4C, 0x67, 0x88])
 
 
     if BRIDGE:      # hooks of the cartridge the snapshot came from point to the old RAM part

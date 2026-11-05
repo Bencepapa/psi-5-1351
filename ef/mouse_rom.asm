@@ -1431,6 +1431,11 @@ NUS9R:  RTS
 NUPROMPT:
         LDA #$FF                ; back at depth 0/1 the bar is drawn again
         STA NUSIG
+        LDX #39                 ; the game writes its echo without colours: all white
+        LDA #1
+NUPC:   STA NUCOL,X
+        DEX
+        BPL NUPC
         LDA #$20
         STA NUSCR
         LDX TMP                 ; a prompt: the game only appends to its echo line, so put
@@ -1546,9 +1551,10 @@ NUB3:   LDA NUNAME,X
         BNE NUB3
         PLA
         JSR NUBCNT
-        INY
-        INY
-        STY TMP2
+        LDA TMP2                ; every short tab is 6 cells, so the bar's width never changes
+        CLC
+        ADC #6
+        STA TMP2
 NUBSEP: LDY TMP2                ; a light grey bar between the tabs
         DEY
         LDA #$7C
@@ -1611,9 +1617,7 @@ NUTQ:   LDA #'Q'
 NUT2:   LDA #3                  ; walk the fields as NUBAR lays them out
         STA TMP2
         LDX #0
-NUT3:   LDA NULEN,X
-        CLC
-        ADC #2
+NUT3:   LDA #6
         CPX TMP
         BNE NUT4
         LDA #13
