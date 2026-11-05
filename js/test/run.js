@@ -803,6 +803,65 @@ function bridgeSmoke(dma) {
   return m;
 }
 
+function newUiTabBarTests() {
+  if (!process.env.PSI5_NEWUI) return;
+  const tabs = [
+    ['W', 'Weap', 'Weapons', 14, 1], ['S', 'Scan', 'Scanning', 2, 2],
+    ['N', 'Nav', 'Navigation', 4, 0], ['E', 'Eng', 'Engineering', 12, 4],
+    ['R', 'Rep', 'Repair', 5, 3]
+  ];
+  const glyphs = [0x20, 0x02, 0x5F, 0xB8, 0x1D, 0x9A, 0xCC];
+  for (const dma of [false, true]) {
+    const label = 'New UI tabs ' + (dma ? 'm.dma' : 'page speed') + ': ';
+    const m = boot(dma, 'bridge');
+    check(untilAt(m, SYM.GETKEY, 1200), label + 'fresh bridge boot reaches input');
+    frames(m, 200);
+    const row = () => String.fromCharCode(...m.ram.slice(0x5000 + 13 * 40, 0x5000 + 14 * 40));
+    // The bridge can initially be in Acknowledge; return through the native menu.
+    clickPointer(m, 14, 39, true);
+    const eng = findRowChar(m, 14, 0x45);
+    if (eng >= 0) clickPointer(m, 14, eng);
+    frames(m, 40);
+    const full = row().indexOf('Engineering');
+    check(m.ram[0x37] === 1 && m.ram[0x2D] === 0x45 && full >= 0 &&
+          Array.from(m.colorRam.slice(13 * 40 + full, 13 * 40 + full + 11)).every(c => c === 1) &&
+          rowChar(m, 13, 39) === 0x7F,
+          label + 'Engineering full name is white at depth 1 with back arrow (row ' + JSON.stringify(row()) + ')');
+    clickPointer(m, 13, 39); frames(m, 40);
+    check(m.ram[0x37] === 0 && tabs.every(t => row().includes(t[1])) && row().slice(36) === 'Quit',
+          label + 'arrow returns to depth 0 with abbreviated tabs and Quit (row ' + JSON.stringify(row()) + ')');
+    for (const [letter, short, name, colour, queue] of tabs) {
+      const col = row().indexOf(short);
+      check(col >= 0, label + short + ' tab is offered');
+      if (col >= 0) clickPointer(m, 13, col);
+      frames(m, 40);
+      check(m.ram[0x37] === 1 && m.ram[0x2D] === letter.charCodeAt(0) && m.ram[0x8EF3] === colour,
+            label + 'click opens ' + name + ' with department colour ' + colour +
+            ' (depth ' + m.ram[0x37] + ', department ' + m.ram[0x2D] + ', colour ' + m.ram[0x8EF3] + ')');
+      const start = row().indexOf(name), pending = m.ram[0xFFE8 + queue] - queue * 8;
+      const actual = start < 0 ? -1 : rowChar(m, 13, start + name.length);
+      check(pending >= 0 && start >= 0 && actual === glyphs[Math.min(pending, 6)],
+            label + name + ' count matches RAM queue (' + pending + ' pending, glyph $' + hx(actual) + ')');
+    }
+    clickPointer(m, 13, 0); frames(m, 40);
+    check(m.ram[0x37] === 1 && m.ram[0x2D] === 0x41,
+          label + '? opens Acknowledge (depth ' + m.ram[0x37] + ', department ' + m.ram[0x2D] + ')');
+    clickPointer(m, 13, 39); frames(m, 40);
+    check(m.ram[0x37] === 0, label + 'Acknowledge arrow returns to main menu');
+    const weapons = row().indexOf('Weap');
+    if (weapons >= 0) clickPointer(m, 13, weapons);
+    const fire = findRowChar(m, 14, 0x46);
+    if (fire >= 0) clickPointer(m, 14, fire);
+    frames(m, 40);
+    const cursor = findRowChar(m, 13, 0x7E);
+    check(m.ram[0x37] > 1 && row().startsWith(' WEAP.- Fire') && cursor >= 11 &&
+          Array.from(m.ram.slice(0x5000 + 13 * 40 + cursor + 1, 0x5000 + 14 * 40)).every(c => c === 0x20),
+          label + 'Fire prompt keeps native echo and clears the bar after cursor (row ' + JSON.stringify(row()) + ')');
+    snap(m, 'newui-tabs-' + (dma ? 'dma' : 'plain') + '-prompt');
+  }
+}
+newUiTabBarTests();
+
 const bridgeGames = [false, true].map(bridgeSmoke);
 for (const dma of [false, true]) frontendMouseRegression(dma);
 const games = [false, true].map(playthrough);
