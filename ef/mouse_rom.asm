@@ -945,12 +945,18 @@ MKVRUN:
         AND #$FE
         STA INTXT
         JSR VIS
-MKVIS9: LDA #6
+MKVIS9:
 ;#if NEWUI
-        LDX NUDEPTH     ; home: row 14 is the status line, not the native main menu
-        BNE MKVM
+        JSR NUON        ; home of the bridge menu: row 14 is the status line, not the native menu
+        BNE MKVM6
+        LDX NUDEPTH
+        BNE MKVM6
         LDA #0
+        BEQ MKVM
+MKVM6:  LDA #6
 MKVM:
+;#else
+        LDA #6
 ;#endif
         STA MENUON
         LDA RCLICK
@@ -968,6 +974,8 @@ MK0:    LDA CLICK
         BEQ MKX
         LDX PROW
 ;#if NEWUI
+        JSR NUON        ; other menus (end of mission) are the game's own
+        BNE MK0S
         CPX #13
         BNE MK0N
         JMP NUTAB
@@ -1278,6 +1286,15 @@ NUFULL: .byte 'W','e','a','p','o','n','s',' ',' ',' ',' '
         .byte 'E','n','g','i','n','e','e','r','i','n','g'
         .byte 'R','e','p','a','i','r',' ',' ',' ',' ',' '
 NUQUIT: .byte 'Q','u','i','t'
+; Z set when the menu's root is the bridge main menu ($BEE8, on the interpreter's node stack
+; $0403/$040D); the end-of-mission menu (Status Display Invoice Quit) is another root. X kept.
+NUON:   LDA $0403
+        CMP #$E8
+        BNE NUON9
+        LDA $040D
+        CMP #$BE
+NUON9:  RTS
+
 ; A = department letter -> X = tab index, $FF if not a tab
 NUTABOF:LDX #4
 NUTO1:  CMP NUKEYS,X
@@ -1363,7 +1380,17 @@ NUFRAME:LDA $D011
         JMP NUVIS
 NUF9:   RTS
 
-NUVIS:
+NUVIS:  JSR NUON                ; only on the bridge's own menus: the end of mission has others
+        BEQ NUVG9
+        LDA #6                  ; the game's own colours there
+        STA $8EF3
+        LDA #3
+        STA $94AF
+        LDA #$FF
+        STA NUSIG
+        LDA #$20                ; the bar's ? (the game's echo starts in column 1)
+        STA NUSCR
+        RTS
 NUVG9:  JSR NUACTV
         STX TMP
         LDA #11                 ; menu rows: department colour, dark grey otherwise
