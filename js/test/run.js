@@ -870,8 +870,9 @@ function bridgePriorityRegression(m, dma) {
   const label = (dma ? 'bridge m.dma' : 'bridge page speed') + ': ';
   const originalState = m.saveState();
   clickPointer(m, 14, 39, true);
-  const weaponsCol = findRowChar(m, 14, 0x57);
-  if (weaponsCol >= 0) clickPointer(m, 14, weaponsCol);
+  const menuRow = process.env.PSI5_NEWUI ? 13 : 14;   // New UI: home has the tab bar, row 14 is the status line
+  const weaponsCol = findRowChar(m, menuRow, 0x57);
+  if (weaponsCol >= 0) clickPointer(m, menuRow, weaponsCol);
   const fireCol = findRowChar(m, 14, 0x46);
   if (fireCol >= 0) clickPointer(m, 14, fireCol);
   let col = findRowChar(m, 14, 0x31);

@@ -928,6 +928,12 @@ MKVRUN:
         STA INTXT
         JSR VIS
 MKVIS9: LDA #6
+;#if NEWUI
+        LDX NUDEPTH     ; home: row 14 is the status line, not the native main menu
+        BNE MKVM
+        LDA #0
+MKVM:
+;#endif
         STA MENUON
         LDA RCLICK
         BEQ MK0
@@ -947,7 +953,13 @@ MK0:    LDA CLICK
         CPX #13
         BNE MK0N
         JMP NUTAB
-MK0N:
+MK0N:   CPX #14
+        BNE MK0S
+        LDA NUDEPTH
+        BNE MK0S
+        LSR CLICK       ; home: a click on the status line does nothing
+        RTS
+MK0S:
 ;#endif
         CPX #14
         BNE MKL
@@ -1353,8 +1365,12 @@ NUS1:   JSR NUCOUNT
         CMP NUSIG
         BEQ NUS9
         STA NUSIG
-        JMP NUBAR
-NUS9:   RTS
+        JSR NUBAR
+        JMP NUS9
+NUS9:   LDA NUDEPTH
+        BNE NUS9R
+        JMP NUSTAT
+NUS9R:  RTS
 NUPROMPT:
         LDA #$FF
         STA NUSIG
@@ -1551,6 +1567,83 @@ NUKEY2: PHA
         JSR PUSHK
 NUK3:   PLA
         JMP PUSHK
+; home: row 14 = " ETA Early   Speed 4   Cargo 100%" (ETA text $7380, speed digit $73F4,
+; remaining cargo in per cent $3A32)
+NUROW14 = $5230
+NUCOL14 = $DA30
+NUSTXT: .byte ' ','E','T','A',' '
+NUSPD:  .byte ' ',' ',' ','S','p','e','e','d',' '
+NUCGO:  .byte ' ',' ',' ','C','a','r','g','o',' '
+NUSTAT: LDX #39
+NUST0:  LDA #$20
+        STA NUROW14,X
+        LDA #7
+        STA NUCOL14,X
+        DEX
+        BPL NUST0
+        LDX #4
+NUST1:  LDA NUSTXT,X
+        STA NUROW14,X
+        DEX
+        BPL NUST1
+        LDX #6
+NUST2:  LDA $7380,X
+        STA NUROW14+5,X
+        LDA #1
+        STA NUCOL14+5,X
+        DEX
+        BPL NUST2
+        LDX #8
+NUST3:  LDA NUSPD,X
+        STA NUROW14+12,X
+        LDA NUCGO,X
+        STA NUROW14+22,X
+        DEX
+        BPL NUST3
+        LDA $73F4
+        STA NUROW14+21
+        LDA #1
+        STA NUCOL14+21
+        LDA $3A32       ; per cent, 0-100, as up to three digits
+        LDY #31
+        LDX #'0'-1
+NUST4:  INX
+        SEC
+        SBC #100
+        BCS NUST4
+        ADC #100
+        CPX #'0'
+        BEQ NUST5
+        PHA
+        TXA
+        STA NUROW14,Y
+        PLA
+        INY
+NUST5:  LDX #'0'-1
+NUST6:  INX
+        SEC
+        SBC #10
+        BCS NUST6
+        ADC #10
+        CPX #'0'
+        BNE NUST7
+        CPY #31
+        BEQ NUST8       ; no hundreds and no tens: one digit
+NUST7:  PHA
+        TXA
+        STA NUROW14,Y
+        PLA
+        INY
+NUST8:  ORA #'0'
+        STA NUROW14,Y
+        LDA #'%'
+        STA NUROW14+1,Y
+        LDX #4
+NUST9:  LDA #1
+        STA NUCOL14+31,X
+        DEX
+        BPL NUST9
+        RTS
 ;#endif
 PUSHK:  LDX KCOUNT
         STA KQUEUE,X

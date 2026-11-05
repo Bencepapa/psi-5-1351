@@ -209,3 +209,13 @@ Static analysis of the RAM image at the bridge (`tools/t_b1.bin`, taken from the
 3. Mouse in port 1.
 4. QUIT/restart without a disk.
 5. Decide about `dx` (trainer version).
+
+## Status values (found by Codex, 2026-11-05)
+
+| Value | Address | Format |
+|---|---|---|
+| ETA | `$7380-$7386` (label `ETA=` at `$737B`) | 7 characters: `Early  `, `Late   ` or `Unknown`; built by `$AED8-$AEFD` from the selected course `$73D6` (`A`-`E`) and its RETA sign |
+| Remaining cargo | `$3A32` | binary per cent (`$64` = 100%); `$B9E3`/`$B9E5` subtract a loss and write the text through `$A6E9` |
+| Speed | `$73F4` current, `$73E0` requested | digit characters (`'0'`-`'8'`); `$0701` is the binary movement index |
+| Pending messages | write position `$FFE8+i`, queue start `$EC39+i` (0, 8, 16, 24, 32) | i = N W S R E = 0-4 (the `$39` order); count = position - start |
+
