@@ -228,4 +228,21 @@ Static analysis of the RAM image at the bridge (`tools/t_b1.bin`, taken from the
 - Encounters: `$B0A9-$B1B9` reads the current mask and allocates targets; the bits select types through `$3C61`. Placement is authored; the pseudorandom state `$3A09`/`$3A0A` affects order and attributes. Random incidents/damage are separate.
 - RSK: `$ADAF-$AE27` counts encounter bits over the current position and up to five ahead and shows the total; future ships are not identified. Active objects: 26-slot parallel arrays (type, birth progress, status, behaviour, identification).
 - Details: `.zen/map_findings.md` (not tracked).
+- The secret maps' numbers are the remaining parsecs at each position (Kozzar-7 starts at progress 30; positions 30-48 give course A's 19 rows, 120 down to 12).
+- Encounter mask bit -> ship type (game type id, shape art, colour); the map legend's numbering differs:
+
+| Bits | Ship | Type | Art (8 frames x 30 bytes) | Colour |
+|---|---|---:|---|---|
+| 4, 12 | Xantog | 1 | `$4200` | white |
+| 0, 11 | Zeltoad | 2 | `$42F0` | light red |
+| 2, 8 | Kiffbok | 3 | `$43E0` | light green |
+| 7, 13 | Narvik | 4 | `$44D0` | light blue |
+| 6, 9, 15 | Skront | 5 | `$45C0` | green |
+| 3 | Flarkan | 6 | `$46B0` | blue |
+| 10 | Lepsor | 7 | `$47A0` | light grey |
+| 5 | Scout | 8 | `$4890` | orange |
+| 1 | Prato | 9 | `$4980` | brown |
+| 14 | (inactive) | 0 | | |
+
+- The renderer copies a ship's frame into shared sprite buffers (pointers 0-3, `$4000`/`$4040`/`$4080`/`$40C0`); no type has a fixed sprite block. Showing ships in the text area needs own sprite blocks in the VIC bank (64 bytes each) and a copy of a frame. Details: `.zen/map_findings2.md`.
 
